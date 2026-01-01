@@ -1,5 +1,5 @@
-
 {
   "name": "CryptoJournal Pro",
-  "description": "Profesjonalny dziennik tradingowy z analizą AI i trwałym zapisem danych."
+  "description": "Profesjonalny dziennik tradingowy z analizą AI i trwałym zapisem danych.",
+  "requestFramePermissions": []
 }

@@ -4,12 +4,18 @@ export enum TradeType {
   SHORT = 'SHORT'
 }
 
+export enum TradeStatus {
+  OPEN = 'OPEN',
+  CLOSED = 'CLOSED'
+}
+
 export interface Trade {
   id: string;
   symbol: string;
   type: TradeType;
+  status: TradeStatus;
   entryPrice: number;
-  exitPrice: number;
+  exitPrice: number | null;
   amount: number;
   fees: number;
   date: string;
@@ -19,12 +25,15 @@ export interface Trade {
 }
 
 export interface TradingStats {
+  initialBalance: number;
+  currentBalance: number;
   totalTrades: number;
+  openTrades: number;
   winRate: number;
   totalPnl: number;
+  totalPnlPercentage: number;
   bestTrade: number;
   worstTrade: number;
-  avgPnl: number;
 }
 
 export interface SyncSettings {
@@ -32,4 +41,5 @@ export interface SyncSettings {
   apiKey: string;
   lastSynced: string | null;
   mode: 'local' | 'cloud';
+  initialBalance: number;
 }
