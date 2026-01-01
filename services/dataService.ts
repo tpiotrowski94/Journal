@@ -4,9 +4,6 @@ import { Trade, Wallet } from '../types';
 const WALLETS_KEY = 'crypto_journal_wallets_list';
 const ACTIVE_WALLET_ID_KEY = 'crypto_journal_active_wallet_id';
 
-// To jest miejsce, gdzie w przyszłości dodasz: 
-// const API_URL = '/api/trades';
-
 export const dataService = {
   // WALLETS
   loadWallets: (): Wallet[] => {
@@ -26,8 +23,6 @@ export const dataService = {
 
   saveTrades: (walletId: string, trades: Trade[]) => {
     localStorage.setItem(`trades_${walletId}`, JSON.stringify(trades));
-    // TUTAJ W PRZYSZŁOŚCI:
-    // fetch('/api/save', { method: 'POST', body: JSON.stringify({ walletId, trades }) });
   },
 
   getActiveWalletId: (): string | null => {
@@ -36,5 +31,39 @@ export const dataService = {
 
   setActiveWalletId: (id: string) => {
     localStorage.setItem(ACTIVE_WALLET_ID_KEY, id);
+  },
+
+  // FULL BACKUP
+  exportFullBackup: () => {
+    const wallets = dataService.loadWallets();
+    const allData: Record<string, any> = {
+      wallets,
+      activeWalletId: dataService.getActiveWalletId(),
+      trades: {}
+    };
+
+    wallets.forEach(w => {
+      allData.trades[w.id] = dataService.loadTrades(w.id);
+    });
+
+    return allData;
+  },
+
+  importFullBackup: (data: any) => {
+    if (!data.wallets || !Array.isArray(data.wallets)) throw new Error("Invalid backup format");
+    
+    // Clear old linked data first (optional but safer)
+    const oldWallets = dataService.loadWallets();
+    oldWallets.forEach(w => localStorage.removeItem(`trades_${w.id}`));
+
+    // Save new data
+    dataService.saveWallets(data.wallets);
+    if (data.activeWalletId) dataService.setActiveWalletId(data.activeWalletId);
+    
+    if (data.trades) {
+      Object.keys(data.trades).forEach(walletId => {
+        dataService.saveTrades(walletId, data.trades[walletId]);
+      });
+    }
   }
 };

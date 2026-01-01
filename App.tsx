@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Trade, TradeType, TradeStatus, TradingStats, Wallet, AppState } from './types';
 import TradeForm from './components/TradeForm';
 import TradeTable from './components/TradeTable';
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [appState, setAppState] = useState<AppState>({
     storageMode: 'local',
@@ -107,7 +108,6 @@ const App: React.FC = () => {
     if (sl && sl > 0) {
       risk = Math.abs(entry - sl) * amount;
     } else {
-      // Liquidation Risk: Entire Initial Margin
       risk = (entry * amount) / leverage;
     }
     return isFinite(risk) ? risk : 0;
@@ -174,7 +174,6 @@ const App: React.FC = () => {
         const totalAmount = currentAmount + addAmount;
         const totalFees = currentFees + (Number(additionalFees) || 0);
         
-        // Dynamic Entry Price Averaging
         const newEntry = totalAmount !== 0 ? ((currentEntry * currentAmount) + (addPrice * addAmount)) / totalAmount : currentEntry;
         
         const leverage = newLeverage !== undefined ? Number(newLeverage) : (Number(t.leverage) || 1);
@@ -215,7 +214,6 @@ const App: React.FC = () => {
   };
 
   const handleDeleteTrade = (id: string) => {
-    // Standard dialogs might be blocked in sandboxes, removing confirm for immediate feedback
     setTrades(prev => prev.filter(t => t.id !== id));
   };
 
@@ -261,25 +259,59 @@ const App: React.FC = () => {
     setAppState(prev => ({ ...prev, lastBackup: now }));
   };
 
+  const handleFullBackupExport = () => {
+    const data = dataService.exportFullBackup();
+    const dataStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `full_trading_system_backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    
+    const now = new Date().toLocaleString();
+    localStorage.setItem('last_backup_date', now);
+    setAppState(prev => ({ ...prev, lastBackup: now }));
+  };
+
+  const handleFullImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (confirm("This will replace ALL current portfolios and trades. Continue?")) {
+          dataService.importFullBackup(json);
+          window.location.reload(); // Re-initialize app with new data
+        }
+      } catch (err) {
+        alert("Invalid backup file.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="min-h-screen pb-12 bg-[#0f172a] text-slate-200">
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl">
             <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter flex items-center gap-3">
-              <i className="fas fa-database text-blue-400"></i> Data Configuration
+              <i className="fas fa-database text-blue-400"></i> System Configuration
             </h3>
             <div className="space-y-6">
               <div className="p-4 bg-slate-900 rounded-2xl border border-slate-700">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[10px] font-black text-slate-500 uppercase">Storage Mode</span>
-                  <span className="text-[10px] font-black bg-blue-500/10 text-blue-400 px-2 py-1 rounded-full uppercase">Local Only</span>
+                  <span className="text-[10px] font-black bg-blue-500/10 text-blue-400 px-2 py-1 rounded-full uppercase">Local Storage</span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">Data is securely stored in your browser. Use JSON Export for manual backups.</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">System is running in offline mode. Your data never leaves this device.</p>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Initial Equity (USDT)</label>
+                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Active Equity (USDT)</label>
                 <input 
                   type="number" 
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
@@ -288,8 +320,35 @@ const App: React.FC = () => {
                 />
               </div>
 
+              <div className="pt-4 border-t border-slate-700 space-y-3">
+                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Backup & Recovery</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={handleFullBackupExport}
+                    className="bg-slate-900 border border-slate-700 hover:border-blue-500/50 text-white p-3 rounded-xl text-[10px] font-black uppercase transition-all flex flex-col items-center gap-2"
+                  >
+                    <i className="fas fa-cloud-download-alt text-blue-400 text-lg"></i>
+                    Export Full System
+                  </button>
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 text-white p-3 rounded-xl text-[10px] font-black uppercase transition-all flex flex-col items-center gap-2"
+                  >
+                    <i className="fas fa-upload text-emerald-400 text-lg"></i>
+                    Restore System
+                  </button>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept=".json" 
+                    onChange={handleFullImport}
+                  />
+                </div>
+              </div>
+
               <div className="pt-4 border-t border-slate-700">
-                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-emerald-600/20">Save and Close</button>
+                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-blue-600/20">Close Settings</button>
               </div>
             </div>
           </div>
@@ -322,7 +381,7 @@ const App: React.FC = () => {
           />
           {appState.lastBackup && (
             <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700">
-              Last Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
+              System Sync: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
             </div>
           )}
         </div>
