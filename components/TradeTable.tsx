@@ -77,7 +77,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
               <th className="px-4 py-4">Conv.</th>
               <th className="px-4 py-4">Entry / Exit</th>
               <th className="px-4 py-4">Fees</th>
-              <th className="px-4 py-4 text-right">Risk</th>
+              <th className="px-4 py-4 text-right">Risk (Portfolio %)</th>
               <th className="px-4 py-4 text-right">PnL</th>
               <th className="px-4 py-4 text-center">Actions</th>
             </tr>
@@ -161,7 +161,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                       {walletRiskPct}% {isNoSL ? 'LIQ' : ''}
                     </div>
                     <div className="text-[9px] text-slate-300 font-bold uppercase mt-1">
-                      ${riskVal.toFixed(2)}
+                      ${riskVal.toFixed(2)} <span className="text-[7px] text-slate-500 italic">Total R</span>
                     </div>
                   </td>
                   <td className={`px-4 py-4 text-right`}>

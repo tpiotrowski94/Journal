@@ -356,7 +356,7 @@ const App: React.FC = () => {
       )}
 
       <nav className="bg-[#0f172a]/80 backdrop-blur-xl border-b border-slate-800/50 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-[1800px] mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
              <i className="fas fa-bolt-lightning text-emerald-500 text-xl"></i>
              <h1 className="text-lg font-black text-white tracking-tighter uppercase italic leading-tight">CryptoJournal <span className="text-emerald-500">Pro</span></h1>
@@ -370,7 +370,7 @@ const App: React.FC = () => {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 mt-6">
+      <main className="max-w-[1800px] mx-auto px-4 mt-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <WalletSwitcher 
             wallets={wallets} 
@@ -389,7 +389,7 @@ const App: React.FC = () => {
         <Dashboard stats={stats} />
         
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-4 space-y-6">
+          <div className="lg:col-span-3 xl:col-span-3 space-y-6">
             <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
             <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
             <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative overflow-hidden group">
@@ -406,7 +406,7 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <div className="lg:col-span-8 space-y-8">
+          <div className="lg:col-span-9 xl:col-span-9 space-y-8">
             <TradeTable 
               trades={trades} 
               onDelete={handleDeleteTrade} 
