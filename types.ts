@@ -16,12 +16,15 @@ export interface Trade {
   status: TradeStatus;
   entryPrice: number;
   exitPrice: number | null;
+  stopLoss: number | null;
   amount: number;
   fees: number;
   date: string;
   notes: string;
   pnl: number;
   pnlPercentage: number;
+  confidence: number; // Skala 1-5
+  initialRisk: number | null; // Obliczone: amount * |entry - stopLoss|
 }
 
 export interface TradingStats {
