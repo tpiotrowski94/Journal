@@ -24,14 +24,14 @@ export interface Trade {
   entryPrice: number;
   exitPrice: number | null;
   stopLoss: number | null;
-  amount: number; // Ilość jednostek assetu
+  amount: number;
   fees: number;
   date: string;
   notes: string;
   pnl: number;
   pnlPercentage: number;
   confidence: number;
-  initialRisk: number | null; // Kwota $ przy SL
+  initialRisk: number | null;
 }
 
 export interface Wallet {
@@ -52,9 +52,8 @@ export interface TradingStats {
   worstTrade: number;
 }
 
-export interface SyncSettings {
-  remoteUrl: string;
-  apiKey: string;
-  lastSynced: string | null;
-  mode: 'local' | 'cloud';
+export interface AppState {
+  storageMode: 'local' | 'cloud';
+  isSynced: boolean;
+  lastBackup: string | null;
 }

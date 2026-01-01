@@ -29,6 +29,18 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
     setModalState(null);
   };
 
+  const formatTradeDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      // Ręczne formatowanie, aby uniknąć problemów z lokalnymi ustawieniami
+      const date = d.toISOString().split('T')[0];
+      const time = d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return { date, time };
+    } catch (e) {
+      return { date: dateStr, time: '' };
+    }
+  };
+
   return (
     <div className="bg-slate-800 rounded-3xl border border-slate-700 overflow-hidden shadow-2xl">
       {modalState && (
@@ -42,10 +54,12 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
 
       <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
         <h2 className="text-xl font-black text-white flex items-center gap-3 uppercase italic tracking-tighter">
-          <i className="fas fa-layer-group text-emerald-500"></i> Journal Entries
+          <i className="fas fa-list-ul text-emerald-500"></i> Live History & Active
         </h2>
         <div className="flex gap-2">
-           <button onClick={onExport} className="bg-slate-900 text-slate-500 hover:text-white text-[9px] font-black px-4 py-2 rounded-full border border-slate-700 uppercase transition-all">Export JSON</button>
+           <button onClick={onExport} className="bg-slate-900 text-slate-500 hover:text-white text-[9px] font-black px-4 py-2 rounded-full border border-slate-700 uppercase transition-all flex items-center gap-2">
+             <i className="fas fa-download"></i> Backup JSON
+           </button>
         </div>
       </div>
       <div className="overflow-x-auto custom-scrollbar">
@@ -55,9 +69,9 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
               <th className="px-6 py-4">Side</th>
               <th className="px-6 py-4">Asset / Mode</th>
               <th className="px-6 py-4">Entry</th>
-              <th className="px-6 py-4">Exit / SL</th>
+              <th className="px-6 py-4">Execution Time</th>
               <th className="px-6 py-4 text-right">Risk %</th>
-              <th className="px-6 py-4 text-right">P&L</th>
+              <th className="px-6 py-4 text-right">P&L Result</th>
               <th className="px-6 py-4 text-center">Actions</th>
             </tr>
           </thead>
@@ -70,6 +84,8 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
               const walletRiskPct = trade.initialRisk && walletBalance > 0
                 ? ((trade.initialRisk / walletBalance) * 100).toFixed(2)
                 : '0.00';
+
+              const { date, time } = formatTradeDate(trade.date);
 
               return (
                 <tr key={trade.id} className="hover:bg-slate-700/20 transition-colors">
@@ -84,15 +100,11 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                   </td>
                   <td className="px-6 py-4">
                     <div className="font-mono text-[11px] text-slate-300">${trade.entryPrice.toLocaleString()}</div>
-                    <div className="text-[9px] text-slate-600 font-bold uppercase">Vol: {trade.amount}</div>
+                    <div className="text-[9px] text-slate-600 font-bold uppercase">Size: {trade.amount}</div>
                   </td>
                   <td className="px-6 py-4">
-                    {trade.status === TradeStatus.CLOSED ? (
-                       <div className="font-mono text-[11px] text-slate-300">${trade.exitPrice?.toLocaleString()}</div>
-                    ) : (
-                       <div className="font-mono text-[11px] text-rose-500/70">SL: ${trade.stopLoss?.toLocaleString() || 'None'}</div>
-                    )}
-                    <div className="text-[9px] text-slate-600 font-bold uppercase">{trade.date}</div>
+                    <div className="text-[10px] text-slate-300 font-bold">{date}</div>
+                    <div className="text-[9px] text-emerald-500/60 font-mono uppercase italic">{time}</div>
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="font-black text-[11px] text-rose-400">{walletRiskPct}%</div>
@@ -100,7 +112,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                   </td>
                   <td className={`px-6 py-4 text-right`}>
                     {trade.status === TradeStatus.OPEN ? (
-                      <span className="text-[10px] font-black text-blue-400 animate-pulse uppercase tracking-widest">ACTIVE</span>
+                      <span className="text-[10px] font-black text-blue-400 animate-pulse uppercase tracking-widest border border-blue-400/30 px-2 py-0.5 rounded-full">ACTIVE</span>
                     ) : (
                       <>
                         <div className={`font-black text-xs ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -117,7 +129,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                           <button 
                             onClick={() => setModalState({ type: 'EDIT', trade })} 
                             className="bg-slate-700 text-slate-400 hover:text-white px-2 py-1 rounded-lg text-[9px] font-black transition-all"
-                            title="Edit position"
+                            title="Edit"
                           >
                             <i className="fas fa-pencil-alt"></i>
                           </button>
