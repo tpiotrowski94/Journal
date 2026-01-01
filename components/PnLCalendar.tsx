@@ -18,7 +18,6 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  // Obliczanie P&L per dzień
   const dailyPnL = useMemo(() => {
     const map: Record<string, number> = {};
     trades.filter(t => t.status === TradeStatus.CLOSED).forEach(t => {
@@ -28,7 +27,6 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
     return map;
   }, [trades]);
 
-  // Znalezienie max wartości w miesiącu do skalowania słupków
   const maxAbsPnL = useMemo(() => {
     const values = Object.keys(dailyPnL)
       .filter(key => key.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
@@ -50,8 +48,8 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
   }, [trades, month, year]);
 
   const monthNames = [
-    "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
-    "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
   ];
 
   const renderDays = () => {
@@ -68,7 +66,6 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
       const pnl = dailyPnL[dateKey];
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
-      // Obliczanie wysokości słupka (max 60% wysokości komórki)
       const barHeight = pnl ? (Math.abs(pnl) / maxAbsPnL) * 60 : 0;
 
       days.push(
@@ -80,7 +77,6 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
         >
           <span className={`text-[9px] font-black self-start ${isToday ? 'text-blue-400' : 'text-slate-600'}`}>{d}</span>
           
-          {/* Wizualny słupek P&L (BingX Style) */}
           <div className="flex-1 w-full flex items-center justify-center relative">
             {pnl !== undefined && (
               <div 
@@ -106,7 +102,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-black text-white uppercase italic tracking-tighter flex items-center gap-2">
-            <i className="fas fa-calendar-check text-emerald-500"></i> Visual Journal
+            <i className="fas fa-calendar-check text-emerald-500"></i> Performance Calendar
           </h2>
           <div className="bg-slate-900 px-3 py-1 rounded-full border border-slate-700">
              <span className="text-[10px] font-black text-slate-300 uppercase">{monthNames[month]} {year}</span>

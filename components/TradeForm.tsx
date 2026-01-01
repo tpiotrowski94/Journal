@@ -8,12 +8,9 @@ interface TradeFormProps {
 }
 
 const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
-  const [isOpenPosition, setIsOpenPosition] = useState(false);
-  
   const getNowISO = () => {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    // Adding seconds precision for high resolution logs
     return now.toISOString().slice(0, 19);
   };
 
@@ -43,16 +40,19 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     e.preventDefault();
     if (!formData.symbol || !formData.entryPrice || !formData.amount) return;
 
+    // Detect status based on Exit Price presence
+    const isActuallyOpen = formData.exitPrice.trim() === '';
+
     onAddTrade({
       symbol: formData.symbol.toUpperCase(),
       type: formData.type,
       marginMode: formData.marginMode,
-      leverage: Number(formData.leverage),
-      status: isOpenPosition ? TradeStatus.OPEN : TradeStatus.CLOSED,
-      entryPrice: parseFloat(formData.entryPrice),
-      exitPrice: isOpenPosition ? null : parseFloat(formData.exitPrice),
+      leverage: Number(formData.leverage) || 1,
+      status: isActuallyOpen ? TradeStatus.OPEN : TradeStatus.CLOSED,
+      entryPrice: parseFloat(formData.entryPrice) || 0,
+      exitPrice: isActuallyOpen ? null : parseFloat(formData.exitPrice),
       stopLoss: formData.stopLoss ? parseFloat(formData.stopLoss) : null,
-      amount: parseFloat(formData.amount),
+      amount: parseFloat(formData.amount) || 0,
       fees: parseFloat(formData.fees) || 0,
       date: formData.date,
       notes: formData.notes,
@@ -65,23 +65,25 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
       exitPrice: '',
       stopLoss: '',
       amount: '',
+      fees: '0',
       notes: '',
       date: getNowISO()
     });
   };
 
-  const confidenceLabels = ["Hazard", "Spekulacja", "Neutralny", "Solidny Setup", "Mocny Sygnał"];
+  const isPositionOpen = formData.exitPrice.trim() === '';
+  const confidenceLabels = ["Gambling", "Speculation", "Neutral", "Solid Setup", "Strong Signal"];
 
   return (
     <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl">
       <h2 className="text-xl font-black mb-6 text-white flex items-center gap-2 uppercase italic tracking-tighter">
-        <i className="fas fa-terminal text-emerald-500"></i> Terminal Egzekucji
+        <i className="fas fa-terminal text-emerald-500"></i> Execution Terminal
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest flex justify-between">
-            <span>Poziom Pewności</span>
+            <span>Confidence Level</span>
             <span className="text-emerald-500">{confidenceLabels[formData.confidence - 1]}</span>
           </label>
           <div className="flex gap-1">
@@ -103,7 +105,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-1">
-               <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Aktywo</label>
+               <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Trading Pair</label>
                <input
                 type="text"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-sm uppercase"
@@ -113,7 +115,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
             <div className="col-span-1">
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Czas Wykonania</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Execution Date</label>
               <input
                 type="datetime-local"
                 step="1"
@@ -127,7 +129,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Strona</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Trade Side</label>
               <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
                 <button 
                   type="button"
@@ -142,23 +144,25 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               </div>
             </div>
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Dźwignia</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm pr-10"
-                  value={formData.leverage}
-                  onChange={(e) => setFormData({ ...formData, leverage: Number(e.target.value) })}
-                  required
-                />
-                <span className="absolute right-3 top-3 text-[10px] font-black text-slate-600">x</span>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Margin Mode</label>
+              <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
+                <button 
+                  type="button"
+                  onClick={() => setFormData({...formData, marginMode: MarginMode.ISOLATED})}
+                  className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.marginMode === MarginMode.ISOLATED ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}
+                >ISO</button>
+                <button 
+                  type="button"
+                  onClick={() => setFormData({...formData, marginMode: MarginMode.CROSS})}
+                  className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.marginMode === MarginMode.CROSS ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}
+                >CROSS</button>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Cena Wejścia</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Entry Price</label>
               <input
                 type="number"
                 step="any"
@@ -169,14 +173,14 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Wolumen (Jednostki)</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Amount (Units)</label>
               <input
                 type="number"
                 step="any"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
                 value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                placeholder="np. 0.01"
+                placeholder="0.00"
                 required
               />
             </div>
@@ -185,6 +189,19 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Leverage</label>
+            <div className="relative">
+              <input
+                type="number"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none font-bold text-xs pr-8"
+                value={formData.leverage}
+                onChange={(e) => setFormData({ ...formData, leverage: Number(e.target.value) })}
+                required
+              />
+              <span className="absolute right-3 top-2.5 text-[10px] font-black text-slate-600">x</span>
+            </div>
+          </div>
+          <div>
             <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Stop Loss</label>
             <input
               type="number"
@@ -192,39 +209,43 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-rose-500 outline-none font-bold text-xs"
               value={formData.stopLoss}
               onChange={(e) => setFormData({ ...formData, stopLoss: e.target.value })}
+              placeholder="SL Price"
             />
           </div>
-          <div className={isOpenPosition ? 'opacity-30' : ''}>
-            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Cena Wyjścia</label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest flex justify-between items-center">
+              <span>Exit Price</span>
+              <span className="text-[7px] text-blue-400 font-black">Empty = OPEN</span>
+            </label>
             <input
               type="number"
               step="any"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none font-bold text-xs"
               value={formData.exitPrice}
               onChange={(e) => setFormData({ ...formData, exitPrice: e.target.value })}
-              disabled={isOpenPosition}
+              placeholder="Leave empty for open"
+            />
+          </div>
+          <div>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Initial Fees</label>
+            <input
+              type="number"
+              step="any"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-400 outline-none font-bold text-xs"
+              value={formData.fees}
+              onChange={(e) => setFormData({ ...formData, fees: e.target.value })}
             />
           </div>
         </div>
 
-        <div className="flex items-center gap-3 p-3 bg-blue-500/5 rounded-2xl border border-blue-500/10">
-          <input 
-            type="checkbox" 
-            id="open_pos_check"
-            checked={isOpenPosition}
-            onChange={(e) => setIsOpenPosition(e.target.checked)}
-            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-blue-600 cursor-pointer"
-          />
-          <label htmlFor="open_pos_check" className="text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer flex-1 select-none">
-            Zostaw jako Otwartą Pozycję
-          </label>
-        </div>
-
         <button
           type="submit"
-          className={`w-full ${isOpenPosition ? 'bg-blue-600 shadow-blue-600/20' : 'bg-emerald-600 shadow-emerald-600/20'} text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase tracking-[0.2em] text-xs hover:brightness-110`}
+          className={`w-full ${isPositionOpen ? 'bg-blue-600 shadow-blue-600/20' : 'bg-emerald-600 shadow-emerald-600/20'} text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase tracking-[0.2em] text-xs hover:brightness-110`}
         >
-          {isOpenPosition ? 'Otwórz Pozycję' : 'Zapisz Zamknięty Trade'}
+          {isPositionOpen ? 'Execute Open Position' : 'Log Closed Trade'}
         </button>
       </form>
     </div>

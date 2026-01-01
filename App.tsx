@@ -38,7 +38,7 @@ const App: React.FC = () => {
         setActiveWalletId(loadedWallets[0].id);
       }
     } else {
-      const defaultWallet: Wallet = { id: crypto.randomUUID(), name: 'Portfel Główny', initialBalance: 1000 };
+      const defaultWallet: Wallet = { id: crypto.randomUUID(), name: 'Main Portfolio', initialBalance: 1000 };
       const initialWallets = [defaultWallet];
       setWallets(initialWallets);
       dataService.saveWallets(initialWallets);
@@ -72,71 +72,118 @@ const App: React.FC = () => {
   , [wallets, activeWalletId]);
 
   const calculatePnl = (trade: Partial<Trade>) => {
-    if (!trade.entryPrice || !trade.amount || trade.exitPrice === null) return { pnl: 0, pnlPercentage: 0 };
+    const entry = Number(trade.entryPrice) || 0;
+    const amount = Number(trade.amount) || 0;
+    const exit = trade.exitPrice !== null ? Number(trade.exitPrice) : null;
+    const fees = Number(trade.fees) || 0;
+    const leverage = Number(trade.leverage) || 1;
+
+    if (entry === 0 || amount === 0 || exit === null) return { pnl: 0, pnlPercentage: 0 };
+    
     const isLong = trade.type === TradeType.LONG;
-    const pnl = isLong 
-      ? (trade.exitPrice - trade.entryPrice) * trade.amount - (trade.fees || 0)
-      : (trade.entryPrice - trade.exitPrice) * trade.amount - (trade.fees || 0);
-    const pnlPercentage = (trade.entryPrice * trade.amount) !== 0 
-      ? (pnl / (trade.entryPrice * trade.amount)) * 100 
-      : 0;
-    return { pnl, pnlPercentage };
+    const grossPnl = isLong 
+      ? (exit - entry) * amount
+      : (entry - exit) * amount;
+    
+    const pnl = grossPnl - fees;
+    const margin = (entry * amount) / leverage;
+    const pnlPercentage = margin !== 0 ? (pnl / margin) * 100 : 0;
+    
+    return { 
+      pnl: isFinite(pnl) ? pnl : 0, 
+      pnlPercentage: isFinite(pnlPercentage) ? pnlPercentage : 0 
+    };
   };
 
   const calculateInitialRisk = (trade: Partial<Trade>) => {
-    if (!trade.entryPrice || !trade.stopLoss || !trade.amount) return null;
-    return Math.abs(trade.entryPrice - trade.stopLoss) * trade.amount;
+    const entry = Number(trade.entryPrice) || 0;
+    const amount = Number(trade.amount) || 0;
+    const leverage = Number(trade.leverage) || 1;
+    const sl = trade.stopLoss !== null ? Number(trade.stopLoss) : null;
+
+    if (entry === 0 || amount === 0) return 0;
+    
+    let risk = 0;
+    if (sl && sl > 0) {
+      risk = Math.abs(entry - sl) * amount;
+    } else {
+      // Liquidation Risk: Entire Initial Margin
+      risk = (entry * amount) / leverage;
+    }
+    return isFinite(risk) ? risk : 0;
   };
 
   const stats = useMemo<TradingStats>(() => {
     const closedTrades = trades.filter(t => t.status === TradeStatus.CLOSED);
-    const totalPnl = closedTrades.reduce((sum, t) => sum + t.pnl, 0);
-    const wins = closedTrades.filter(t => t.pnl > 0).length;
-    const initialBalance = activeWallet?.initialBalance || 0;
+    const totalPnl = closedTrades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+    const wins = closedTrades.filter(t => (Number(t.pnl) || 0) > 0).length;
+    const initialBalance = Number(activeWallet?.initialBalance) || 0;
     const currentBalance = initialBalance + totalPnl;
+    
     return {
       initialBalance,
-      currentBalance,
+      currentBalance: isFinite(currentBalance) ? currentBalance : initialBalance,
       totalTrades: trades.length,
       openTrades: trades.filter(t => t.status === TradeStatus.OPEN).length,
       winRate: closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0,
-      totalPnl,
-      totalPnlPercentage: initialBalance !== 0 ? ((currentBalance - initialBalance) / initialBalance) * 100 : 0,
-      bestTrade: closedTrades.length > 0 ? Math.max(...closedTrades.map(t => t.pnl)) : 0,
-      worstTrade: closedTrades.length > 0 ? Math.min(...closedTrades.map(t => t.pnl)) : 0
+      totalPnl: isFinite(totalPnl) ? totalPnl : 0,
+      totalPnlPercentage: initialBalance !== 0 ? (totalPnl / initialBalance) * 100 : 0,
+      bestTrade: closedTrades.length > 0 ? Math.max(...closedTrades.map(t => Number(t.pnl) || 0)) : 0,
+      worstTrade: closedTrades.length > 0 ? Math.min(...closedTrades.map(t => Number(t.pnl) || 0)) : 0
     };
   }, [trades, activeWallet]);
 
   const handleAddTrade = (newTradeData: Omit<Trade, 'id' | 'pnl' | 'pnlPercentage' | 'initialRisk'>) => {
-    const { pnl, pnlPercentage } = calculatePnl(newTradeData as any);
     const initialRisk = calculateInitialRisk(newTradeData as any);
-    const trade: Trade = { ...newTradeData, id: crypto.randomUUID(), pnl, pnlPercentage, initialRisk };
+    const { pnl, pnlPercentage } = calculatePnl(newTradeData as any);
+    const trade: Trade = { 
+      ...newTradeData, 
+      id: crypto.randomUUID(), 
+      pnl: Number(pnl) || 0, 
+      pnlPercentage: Number(pnlPercentage) || 0, 
+      initialRisk: Number(initialRisk) || 0 
+    };
     setTrades([trade, ...trades]);
   };
 
-  const handleCloseTrade = (id: string, exitPrice: number) => {
+  const handleCloseTrade = (id: string, exitPrice: number, exitFees: number) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
-        const updated = { ...t, exitPrice, status: TradeStatus.CLOSED };
+        const totalFees = (Number(t.fees) || 0) + (Number(exitFees) || 0);
+        const updated = { ...t, exitPrice: Number(exitPrice), fees: totalFees, status: TradeStatus.CLOSED };
         const { pnl, pnlPercentage } = calculatePnl(updated);
-        return { ...updated, pnl, pnlPercentage };
+        return { 
+          ...updated, 
+          pnl: isFinite(pnl) ? pnl : 0, 
+          pnlPercentage: isFinite(pnlPercentage) ? pnlPercentage : 0 
+        };
       }
       return t;
     }));
   };
 
-  const handleAddToPosition = (id: string, additionalAmount: number, additionalPrice: number, newLeverage?: number) => {
+  const handleAddToPosition = (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
-        const totalAmount = t.amount + additionalAmount;
-        const newEntry = ((t.entryPrice * t.amount) + (additionalPrice * additionalAmount)) / totalAmount;
-        const initialRisk = calculateInitialRisk({ ...t, entryPrice: newEntry, amount: totalAmount });
+        const currentAmount = Number(t.amount) || 0;
+        const currentEntry = Number(t.entryPrice) || 0;
+        const currentFees = Number(t.fees) || 0;
+        
+        const addAmount = Number(additionalAmount) || 0;
+        const addPrice = Number(additionalPrice) || 0;
+        const totalAmount = currentAmount + addAmount;
+        const totalFees = currentFees + (Number(additionalFees) || 0);
+        
+        // Dynamic Entry Price Averaging
+        const newEntry = totalAmount !== 0 ? ((currentEntry * currentAmount) + (addPrice * addAmount)) / totalAmount : currentEntry;
+        
+        const leverage = newLeverage !== undefined ? Number(newLeverage) : (Number(t.leverage) || 1);
+        const updatedPartial = { ...t, amount: totalAmount, entryPrice: newEntry, fees: totalFees, leverage };
+        const initialRisk = calculateInitialRisk(updatedPartial);
+        
         return { 
-          ...t, 
-          amount: totalAmount, 
-          entryPrice: newEntry, 
-          initialRisk,
-          leverage: newLeverage !== undefined ? newLeverage : t.leverage 
+          ...updatedPartial, 
+          initialRisk: isFinite(initialRisk) ? initialRisk : 0
         };
       }
       return t;
@@ -146,24 +193,36 @@ const App: React.FC = () => {
   const handleEditTrade = (id: string, updatedData: any) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
-        const updated = { ...t, ...updatedData };
+        const updated = { 
+          ...t, 
+          ...updatedData,
+          entryPrice: Number(updatedData.entryPrice) || 0,
+          amount: Number(updatedData.amount) || 0,
+          fees: Number(updatedData.fees) || 0,
+          leverage: Number(updatedData.leverage) || 1
+        };
         const initialRisk = calculateInitialRisk(updated);
-        return { ...updated, initialRisk };
+        const { pnl, pnlPercentage } = calculatePnl(updated);
+        return { 
+          ...updated, 
+          initialRisk: isFinite(initialRisk) ? initialRisk : 0, 
+          pnl: isFinite(pnl) ? pnl : 0, 
+          pnlPercentage: isFinite(pnlPercentage) ? pnlPercentage : 0 
+        };
       }
       return t;
     }));
   };
 
   const handleDeleteTrade = (id: string) => {
-    if (confirm('Usunąć transakcję?')) {
-      setTrades(trades.filter(t => t.id !== id));
-    }
+    // Standard dialogs might be blocked in sandboxes, removing confirm for immediate feedback
+    setTrades(prev => prev.filter(t => t.id !== id));
   };
 
   const handleAddWallet = () => {
-    const name = prompt("Nazwa portfela:");
+    const name = prompt("Portfolio Name:");
     if (!name) return;
-    const balanceStr = prompt("Kapitał początkowy (USDT):", "1000");
+    const balanceStr = prompt("Initial Equity (USDT):", "1000");
     if (balanceStr === null) return;
     const balance = parseFloat(balanceStr) || 0;
 
@@ -173,8 +232,8 @@ const App: React.FC = () => {
   };
 
   const handleDeleteWallet = (id: string) => {
-    if (wallets.length <= 1) return alert("Musisz mieć przynajmniej jeden portfel.");
-    if (confirm("Usunąć ten portfel i całą jego historię?")) {
+    if (wallets.length <= 1) return alert("You must have at least one portfolio.");
+    if (confirm("Delete this portfolio and all its history?")) {
       const newWallets = wallets.filter(w => w.id !== id);
       setWallets(newWallets);
       localStorage.removeItem(`trades_${id}`);
@@ -194,7 +253,7 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `journal_${activeWallet?.name.toLowerCase()}.json`;
+    link.download = `journal_${activeWallet?.name.toLowerCase().replace(/\s/g, '_')}.json`;
     link.click();
     
     const now = new Date().toLocaleString();
@@ -208,29 +267,29 @@ const App: React.FC = () => {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl">
             <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter flex items-center gap-3">
-              <i className="fas fa-database text-blue-400"></i> Konfiguracja Danych
+              <i className="fas fa-database text-blue-400"></i> Data Configuration
             </h3>
             <div className="space-y-6">
               <div className="p-4 bg-slate-900 rounded-2xl border border-slate-700">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-[10px] font-black text-slate-500 uppercase">Tryb zapisu</span>
-                  <span className="text-[10px] font-black bg-blue-500/10 text-blue-400 px-2 py-1 rounded-full uppercase">Lokalny</span>
+                  <span className="text-[10px] font-black text-slate-500 uppercase">Storage Mode</span>
+                  <span className="text-[10px] font-black bg-blue-500/10 text-blue-400 px-2 py-1 rounded-full uppercase">Local Only</span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">Dane są bezpieczne w pamięci Twojej przeglądarki. Pamiętaj o regularnym eksporcie JSON.</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">Data is securely stored in your browser. Use JSON Export for manual backups.</p>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase">Kapitał Portfela (USDT)</label>
+                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Initial Equity (USDT)</label>
                 <input 
                   type="number" 
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
-                  value={activeWallet?.initialBalance}
+                  value={activeWallet?.initialBalance || 0}
                   onChange={e => setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, initialBalance: parseFloat(e.target.value) || 0 } : w))}
                 />
               </div>
 
               <div className="pt-4 border-t border-slate-700">
-                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-emerald-600/20">Zamknij i Zapisz</button>
+                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-emerald-600/20">Save and Close</button>
               </div>
             </div>
           </div>
@@ -246,7 +305,7 @@ const App: React.FC = () => {
           
           <div className="flex items-center gap-3">
             <button onClick={() => setIsSettingsOpen(true)} className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition-all active:scale-95">
-              <i className="fas fa-database text-sm"></i>
+              <i className="fas fa-cog text-sm"></i>
             </button>
           </div>
         </div>
@@ -263,7 +322,7 @@ const App: React.FC = () => {
           />
           {appState.lastBackup && (
             <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700">
-              Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
+              Last Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
             </div>
           )}
         </div>
@@ -279,11 +338,11 @@ const App: React.FC = () => {
                <div className="flex justify-between items-center mb-4 relative z-10">
                 <h2 className="text-lg font-black text-white uppercase italic tracking-tight"><i className="fas fa-brain text-purple-400 mr-2"></i> Trading AI</h2>
                 <button onClick={handleAiAnalysis} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
-                  {isAnalyzing ? '...' : 'Analizuj'}
+                  {isAnalyzing ? '...' : 'Analyze'}
                 </button>
               </div>
               <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">
-                {aiAnalysis || "Kliknij 'Analizuj', aby otrzymać psychologiczny feedback od Gemini na temat Twoich pozycji."}
+                {aiAnalysis || "Click 'Analyze' to receive psychological feedback from Gemini based on your recent activity."}
               </div>
             </div>
           </div>
