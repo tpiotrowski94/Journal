@@ -9,22 +9,29 @@ export enum TradeStatus {
   CLOSED = 'CLOSED'
 }
 
+export enum MarginMode {
+  ISOLATED = 'ISOLATED',
+  CROSS = 'CROSS'
+}
+
 export interface Trade {
   id: string;
   symbol: string;
   type: TradeType;
   status: TradeStatus;
+  marginMode: MarginMode;
+  leverage: number;
   entryPrice: number;
   exitPrice: number | null;
   stopLoss: number | null;
-  amount: number;
+  amount: number; // Ilość jednostek assetu
   fees: number;
   date: string;
   notes: string;
   pnl: number;
   pnlPercentage: number;
-  confidence: number; // Skala 1-5
-  initialRisk: number | null;
+  confidence: number;
+  initialRisk: number | null; // Kwota $ przy SL
 }
 
 export interface Wallet {

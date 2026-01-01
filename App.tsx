@@ -76,7 +76,9 @@ const App: React.FC = () => {
     const pnl = isLong 
       ? (trade.exitPrice - trade.entryPrice) * trade.amount - (trade.fees || 0)
       : (trade.entryPrice - trade.exitPrice) * trade.amount - (trade.fees || 0);
-    const pnlPercentage = (pnl / (trade.entryPrice * trade.amount)) * 100;
+    const pnlPercentage = (trade.entryPrice * trade.amount) !== 0 
+      ? (pnl / (trade.entryPrice * trade.amount)) * 100 
+      : 0;
     return { pnl, pnlPercentage };
   };
 
@@ -122,13 +124,30 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleAddToPosition = (id: string, additionalAmount: number, additionalPrice: number) => {
+  const handleAddToPosition = (id: string, additionalAmount: number, additionalPrice: number, newLeverage?: number) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
         const totalAmount = t.amount + additionalAmount;
         const newEntry = ((t.entryPrice * t.amount) + (additionalPrice * additionalAmount)) / totalAmount;
         const initialRisk = calculateInitialRisk({ ...t, entryPrice: newEntry, amount: totalAmount });
-        return { ...t, amount: totalAmount, entryPrice: newEntry, initialRisk };
+        return { 
+          ...t, 
+          amount: totalAmount, 
+          entryPrice: newEntry, 
+          initialRisk,
+          leverage: newLeverage !== undefined ? newLeverage : t.leverage 
+        };
+      }
+      return t;
+    }));
+  };
+
+  const handleEditTrade = (id: string, updatedData: any) => {
+    setTrades(prev => prev.map(t => {
+      if (t.id === id) {
+        const updated = { ...t, ...updatedData };
+        const initialRisk = calculateInitialRisk(updated);
+        return { ...updated, initialRisk };
       }
       return t;
     }));
@@ -257,6 +276,8 @@ const App: React.FC = () => {
               onDelete={handleDeleteTrade} 
               onCloseTrade={handleCloseTrade} 
               onAddToPosition={handleAddToPosition}
+              onEditTrade={handleEditTrade}
+              walletBalance={stats.currentBalance}
               onExport={() => {
                 const dataStr = JSON.stringify({ wallet: activeWallet, trades }, null, 2);
                 const blob = new Blob([dataStr], { type: "application/json" });
