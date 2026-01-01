@@ -24,7 +24,13 @@ export interface Trade {
   pnl: number;
   pnlPercentage: number;
   confidence: number; // Skala 1-5
-  initialRisk: number | null; // Obliczone: amount * |entry - stopLoss|
+  initialRisk: number | null;
+}
+
+export interface Wallet {
+  id: string;
+  name: string;
+  initialBalance: number;
 }
 
 export interface TradingStats {
@@ -44,5 +50,4 @@ export interface SyncSettings {
   apiKey: string;
   lastSynced: string | null;
   mode: 'local' | 'cloud';
-  initialBalance: number;
 }
