@@ -6,7 +6,7 @@ import TradeActionModal from './TradeActionModal';
 interface TradeTableProps {
   trades: Trade[];
   onDelete: (id: string) => void;
-  onCloseTrade: (id: string, exitPrice: number, exitFees: number) => void;
+  onCloseTrade: (id: string, exitPrice: number, exitFees: number, notes?: string) => void;
   onAddToPosition: (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number) => void;
   onEditTrade: (id: string, updatedData: any) => void;
   onExport?: () => void;
@@ -20,7 +20,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
     if (!modalState) return;
 
     if (modalState.type === 'EXIT') {
-      onCloseTrade(modalState.trade.id, data.price, data.fees);
+      onCloseTrade(modalState.trade.id, data.price, data.fees, data.notes);
     } else if (modalState.type === 'ADD') {
       onAddToPosition(modalState.trade.id, data.amount, data.price, data.fees, data.leverage);
     } else if (modalState.type === 'EDIT') {
@@ -33,10 +33,9 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
     try {
       const d = new Date(dateStr);
       const date = d.toISOString().split('T')[0];
-      const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-      return { date, time };
+      return { date };
     } catch (e) {
-      return { date: dateStr || '-', time: '' };
+      return { date: dateStr || '-' };
     }
   };
 
@@ -96,10 +95,6 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
               const feesVal = Number(trade.fees) || 0;
               const balanceVal = Number(walletBalance) || 1;
 
-              const rrRatio = riskVal > 0 && trade.status === TradeStatus.CLOSED
-                ? (pnlVal / riskVal).toFixed(2) 
-                : null;
-              
               const walletRiskPct = balanceVal > 0
                 ? ((riskVal / balanceVal) * 100).toFixed(2)
                 : "0.00";
@@ -109,124 +104,116 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
               const conf = trade.confidence || 3;
 
               return (
-                <tr key={trade.id} className={`${idx % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/30'} hover:bg-slate-700/40 transition-colors group`}>
-                  <td className="px-4 py-4">
-                    <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-tight shadow-sm ${trade.type === TradeType.LONG ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-                      {trade.type}
-                    </span>
-                    <div className="text-[8px] text-slate-400 font-bold mt-2 opacity-80 uppercase">{date}</div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="font-black text-white text-sm md:text-base tracking-tight group-hover:text-emerald-400 transition-colors">{trade.symbol}</div>
-                    <div className="text-[10px] text-blue-400 font-black uppercase mt-0.5">
-                      {trade.leverage}x <span className="bg-blue-400/10 px-1.5 py-0.5 rounded text-[8px]">{trade.marginMode}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex gap-1 mb-1.5">
-                      {[1, 2, 3, 4, 5].map(i => (
-                        <div key={i} className={`w-2 h-1.5 rounded-full ${i <= conf ? (conf <= 2 ? 'bg-rose-500' : conf === 3 ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-700'}`} />
-                      ))}
-                    </div>
-                    <div className={`text-[9px] font-black uppercase tracking-tighter ${getConfidenceColor(conf)}`}>
-                      {confidenceLabels[conf - 1]}
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex flex-col gap-1 leading-none">
-                      <div className="font-mono text-[12px] text-slate-100 font-bold whitespace-nowrap">
-                        <span className="text-[8px] text-slate-500 uppercase mr-1.5">ENTRY</span>${(Number(trade.entryPrice) || 0).toLocaleString()}
+                <React.Fragment key={trade.id}>
+                  <tr className={`${idx % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/30'} hover:bg-slate-700/40 transition-colors group`}>
+                    <td className="px-4 py-4 align-top">
+                      <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-tight shadow-sm ${trade.type === TradeType.LONG ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                        {trade.type}
+                      </span>
+                      <div className="text-[8px] text-slate-400 font-bold mt-2 opacity-80 uppercase">{date}</div>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="font-black text-white text-sm md:text-base tracking-tight group-hover:text-emerald-400 transition-colors">{trade.symbol}</div>
+                      <div className="text-[10px] text-blue-400 font-black uppercase mt-0.5">
+                        {trade.leverage}x <span className="bg-blue-400/10 px-1.5 py-0.5 rounded text-[8px]">{trade.marginMode}</span>
                       </div>
-                      <div className="font-mono text-[12px] font-bold whitespace-nowrap">
-                        <span className="text-[8px] text-slate-500 uppercase mr-1.5">EXIT</span>
-                        {trade.exitPrice !== null ? (
-                          <span className="text-slate-100">${Number(trade.exitPrice).toLocaleString()}</span>
-                        ) : (
-                          <span className="text-blue-400 text-[9px] tracking-widest font-black animate-pulse">POSITION OPEN</span>
-                        )}
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="flex gap-1 mb-1.5">
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <div key={i} className={`w-2 h-1.5 rounded-full ${i <= conf ? (conf <= 2 ? 'bg-rose-500' : conf === 3 ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-700'}`} />
+                        ))}
                       </div>
-                      <div className="text-[9px] text-slate-400 font-black uppercase mt-1">
-                        QTY: <span className="text-white">{(Number(trade.amount) || 0)}</span>
+                      <div className={`text-[9px] font-black uppercase tracking-tighter ${getConfidenceColor(conf)}`}>
+                        {confidenceLabels[conf - 1]}
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="text-xs font-black text-slate-300 whitespace-nowrap">
-                      {feesVal > 0 ? `-$${feesVal.toFixed(2)}` : '$0.00'}
-                    </div>
-                    <div className="text-[8px] text-slate-500 font-black uppercase">Commission</div>
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <div className={`font-black text-xs ${isNoSL ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
-                      {walletRiskPct}% {isNoSL ? 'LIQ' : ''}
-                    </div>
-                    <div className="text-[9px] text-slate-300 font-bold uppercase mt-1">
-                      ${riskVal.toFixed(2)} <span className="text-[7px] text-slate-500 italic">Total R</span>
-                    </div>
-                  </td>
-                  <td className={`px-4 py-4 text-right`}>
-                    {trade.status === TradeStatus.OPEN ? (
-                      <span className="text-[9px] font-black text-blue-500 bg-blue-500/10 border border-blue-500/30 px-2 py-1 rounded-lg uppercase tracking-wider shadow-sm">ACTIVE</span>
-                    ) : (
-                      <div className="leading-tight">
-                        <div className={`font-black text-base ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)} <span className="text-[10px]">USDT</span>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="flex flex-col gap-1 leading-none">
+                        <div className="font-mono text-[12px] text-slate-100 font-bold whitespace-nowrap">
+                          <span className="text-[8px] text-slate-500 uppercase mr-1.5">ENTRY</span>${(Number(trade.entryPrice) || 0).toLocaleString()}
                         </div>
-                        <div className={`text-[10px] font-black uppercase ${pnlVal >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                          {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}%
+                        <div className="font-mono text-[12px] font-bold whitespace-nowrap">
+                          <span className="text-[8px] text-slate-500 uppercase mr-1.5">EXIT</span>
+                          {trade.exitPrice !== null ? (
+                            <span className="text-slate-100">${Number(trade.exitPrice).toLocaleString()}</span>
+                          ) : (
+                            <span className="text-blue-400 text-[9px] tracking-widest font-black animate-pulse">OPEN</span>
+                          )}
                         </div>
-                        {rrRatio && <div className="text-[9px] font-black text-slate-500 uppercase mt-1">R:R {rrRatio}</div>}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex justify-center items-center gap-2">
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="text-xs font-black text-slate-300 whitespace-nowrap">
+                        {feesVal > 0 ? `-$${feesVal.toFixed(2)}` : '$0.00'}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right align-top">
+                      <div className={`font-black text-xs ${isNoSL ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
+                        {walletRiskPct}% {isNoSL ? 'LIQ' : ''}
+                      </div>
+                      <div className="text-[9px] text-slate-300 font-bold uppercase mt-1">
+                        ${riskVal.toFixed(2)}
+                      </div>
+                    </td>
+                    <td className={`px-4 py-4 text-right align-top`}>
                       {trade.status === TradeStatus.OPEN ? (
-                        <>
-                          <button 
-                            onClick={() => setModalState({ type: 'ADD', trade })} 
-                            className="bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all shadow-sm border border-emerald-500/20"
-                          >
-                            Add
-                          </button>
-                          <button 
-                            onClick={() => setModalState({ type: 'EXIT', trade })} 
-                            className="bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all shadow-sm border border-blue-500/20"
-                          >
-                            Exit
-                          </button>
-                          <div className="w-px h-6 bg-slate-700 mx-1"></div>
-                          <button 
-                            onClick={() => setModalState({ type: 'EDIT', trade })} 
-                            className="text-slate-400 hover:text-white p-1.5 transition-colors"
-                            title="Edit"
-                          >
-                            <i className="fas fa-edit text-sm"></i>
-                          </button>
-                          <button 
-                            onClick={() => onDelete(trade.id)} 
-                            className="text-slate-500 hover:text-rose-500 p-1.5 transition-colors"
-                            title="Delete"
-                          >
-                            <i className="fas fa-trash-alt text-sm"></i>
-                          </button>
-                        </>
+                        <span className="text-[9px] font-black text-blue-500 bg-blue-500/10 border border-blue-500/30 px-2 py-1 rounded-lg uppercase tracking-wider">ACTIVE</span>
                       ) : (
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={() => setModalState({ type: 'EDIT', trade })} 
-                            className="text-slate-400 hover:text-white p-1.5 transition-colors"
-                          >
-                            <i className="fas fa-edit text-sm"></i>
-                          </button>
-                          <button onClick={() => onDelete(trade.id)} className="text-slate-500 hover:text-rose-500 p-1.5 transition-colors">
-                            <i className="fas fa-trash-alt text-sm"></i>
-                          </button>
+                        <div className="leading-tight">
+                          <div className={`font-black text-base ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)}
+                          </div>
+                          <div className={`text-[10px] font-black uppercase ${pnlVal >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}%
+                          </div>
                         </div>
                       )}
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="flex justify-center items-center gap-2">
+                        {trade.status === TradeStatus.OPEN ? (
+                          <>
+                            <button 
+                              onClick={() => setModalState({ type: 'EXIT', trade })} 
+                              className="bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all border border-blue-500/20"
+                            >
+                              Exit
+                            </button>
+                            <button 
+                              onClick={() => setModalState({ type: 'ADD', trade })} 
+                              className="text-emerald-500 hover:text-emerald-400 p-1.5"
+                            >
+                              <i className="fas fa-plus-circle"></i>
+                            </button>
+                          </>
+                        ) : null}
+                        <button 
+                          onClick={() => setModalState({ type: 'EDIT', trade })} 
+                          className="text-slate-400 hover:text-white p-1.5 transition-colors"
+                        >
+                          <i className="fas fa-edit text-sm"></i>
+                        </button>
+                        <button 
+                          onClick={() => onDelete(trade.id)} 
+                          className="text-slate-500 hover:text-rose-500 p-1.5 transition-colors"
+                        >
+                          <i className="fas fa-trash-alt text-sm"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className={`${idx % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/30'} border-b border-slate-700/20`}>
+                    <td colSpan={8} className="px-4 pb-4 pt-0">
+                       <div className="flex items-start gap-2 pl-[4.5rem]">
+                          <i className="fas fa-comment-alt text-[10px] text-slate-600 mt-1"></i>
+                          <p className="text-[11px] text-slate-400 font-medium italic leading-relaxed">
+                            {trade.notes || "No strategy notes for this entry."}
+                          </p>
+                       </div>
+                    </td>
+                  </tr>
+                </React.Fragment>
               );
             })}
           </tbody>

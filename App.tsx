@@ -146,11 +146,17 @@ const App: React.FC = () => {
     setTrades([trade, ...trades]);
   };
 
-  const handleCloseTrade = (id: string, exitPrice: number, exitFees: number) => {
+  const handleCloseTrade = (id: string, exitPrice: number, exitFees: number, updatedNotes?: string) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
         const totalFees = (Number(t.fees) || 0) + (Number(exitFees) || 0);
-        const updated = { ...t, exitPrice: Number(exitPrice), fees: totalFees, status: TradeStatus.CLOSED };
+        const updated = { 
+          ...t, 
+          exitPrice: Number(exitPrice), 
+          fees: totalFees, 
+          status: TradeStatus.CLOSED,
+          notes: updatedNotes !== undefined ? updatedNotes : t.notes 
+        };
         const { pnl, pnlPercentage } = calculatePnl(updated);
         return { 
           ...updated, 
@@ -284,7 +290,7 @@ const App: React.FC = () => {
         const json = JSON.parse(event.target?.result as string);
         if (confirm("This will replace ALL current portfolios and trades. Continue?")) {
           dataService.importFullBackup(json);
-          window.location.reload(); // Re-initialize app with new data
+          window.location.reload(); 
         }
       } catch (err) {
         alert("Invalid backup file.");

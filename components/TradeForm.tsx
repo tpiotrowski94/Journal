@@ -40,7 +40,6 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     e.preventDefault();
     if (!formData.symbol || !formData.entryPrice || !formData.amount) return;
 
-    // Detect status based on Exit Price presence
     const isActuallyOpen = formData.exitPrice.trim() === '';
 
     onAddTrade({
@@ -84,7 +83,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
         <div>
           <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest flex justify-between">
             <span>Confidence Level</span>
-            <span className="text-emerald-500">{confidenceLabels[formData.confidence - 1]}</span>
+            <span className="text-emerald-500 font-black">{confidenceLabels[formData.confidence - 1]}</span>
           </label>
           <div className="flex gap-1">
             {[1, 2, 3, 4, 5].map((level) => (
@@ -104,7 +103,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
 
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-1">
+            <div>
                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Trading Pair</label>
                <input
                 type="text"
@@ -114,7 +113,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
                 required
               />
             </div>
-            <div className="col-span-1">
+            <div>
               <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Execution Date</label>
               <input
                 type="datetime-local"
@@ -187,20 +186,17 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
           </div>
         </div>
 
+        <div>
+          <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Strategy & Entry Guidelines</label>
+          <textarea
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-20 resize-none focus:ring-1 focus:ring-blue-500/50"
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            placeholder="Why this trade? (e.g. Trendline bounce, RSI oversold, Volume spike...)"
+          ></textarea>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Leverage</label>
-            <div className="relative">
-              <input
-                type="number"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none font-bold text-xs pr-8"
-                value={formData.leverage}
-                onChange={(e) => setFormData({ ...formData, leverage: Number(e.target.value) })}
-                required
-              />
-              <span className="absolute right-3 top-2.5 text-[10px] font-black text-slate-600">x</span>
-            </div>
-          </div>
           <div>
             <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Stop Loss</label>
             <input
@@ -212,31 +208,15 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               placeholder="SL Price"
             />
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest flex justify-between items-center">
-              <span>Exit Price</span>
-              <span className="text-[7px] text-blue-400 font-black">Empty = OPEN</span>
-            </label>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Exit Price (Manual)</label>
             <input
               type="number"
               step="any"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none font-bold text-xs"
               value={formData.exitPrice}
               onChange={(e) => setFormData({ ...formData, exitPrice: e.target.value })}
-              placeholder="Leave empty for open"
-            />
-          </div>
-          <div>
-            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Initial Fees</label>
-            <input
-              type="number"
-              step="any"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-400 outline-none font-bold text-xs"
-              value={formData.fees}
-              onChange={(e) => setFormData({ ...formData, fees: e.target.value })}
+              placeholder="Empty = OPEN"
             />
           </div>
         </div>

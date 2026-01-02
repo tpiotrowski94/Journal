@@ -14,6 +14,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
   const [amount, setAmount] = useState<string>('');
   const [leverage, setLeverage] = useState<number>(trade.leverage);
   const [fees, setFees] = useState<string>('0');
+  const [notes, setNotes] = useState<string>(trade.notes || '');
 
   const [editData, setEditData] = useState({
     symbol: trade.symbol,
@@ -24,6 +25,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
     stopLoss: trade.stopLoss?.toString() || '',
     amount: trade.amount.toString(),
     fees: trade.fees.toString(),
+    notes: trade.notes || '',
   });
 
   useEffect(() => {
@@ -37,6 +39,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         stopLoss: trade.stopLoss?.toString() || '',
         amount: trade.amount.toString(),
         fees: trade.fees.toString(),
+        notes: trade.notes || '',
       });
     }
   }, [type, trade]);
@@ -47,7 +50,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
     if (type === 'EXIT') {
       const p = parseFloat(price);
       const f = parseFloat(fees) || 0;
-      if (!isNaN(p)) onConfirm({ price: p, fees: f });
+      if (!isNaN(p)) onConfirm({ price: p, fees: f, notes });
     } else if (type === 'ADD') {
       const p = parseFloat(price);
       const a = parseFloat(amount);
@@ -75,26 +78,13 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-black text-white uppercase italic tracking-tighter">
             {isExit && <><i className="fas fa-door-open text-blue-400 mr-2"></i> Close Position</>}
-            {isAdd && <><i className="fas fa-plus-circle text-emerald-400 mr-2"></i> Add to Position</>}
+            {isAdd && <><i className="fas fa-plus-circle text-emerald-400 mr-2"></i> Increase Position</>}
             {isEdit && <><i className="fas fa-edit text-amber-400 mr-2"></i> Edit Trade</>}
           </h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
             <i className="fas fa-times text-lg"></i>
           </button>
         </div>
-
-        {!isEdit && (
-          <div className="mb-6 p-3 bg-slate-900/50 rounded-xl border border-slate-700/50">
-            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">
-              <span>Asset</span>
-              <span>Current Size</span>
-            </div>
-            <div className="flex justify-between items-end">
-              <span className="text-white font-black">{trade.symbol}</span>
-              <span className="text-slate-300 font-mono text-sm">{trade.amount} units</span>
-            </div>
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {isEdit ? (
@@ -158,13 +148,13 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Avg Entry Price</label>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Realized Fees (USDT)</label>
                   <input
                     type="number"
                     step="any"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
-                    value={editData.entryPrice}
-                    onChange={(e) => setEditData({ ...editData, entryPrice: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-300 font-bold outline-none"
+                    value={editData.fees}
+                    onChange={(e) => setEditData({ ...editData, fees: e.target.value })}
                     required
                   />
                 </div>
@@ -178,6 +168,14 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                     onChange={(e) => setEditData({ ...editData, stopLoss: e.target.value })}
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Update Notes</label>
+                <textarea
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-24 resize-none"
+                  value={editData.notes}
+                  onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                ></textarea>
               </div>
             </>
           ) : (
@@ -198,19 +196,17 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                 />
               </div>
 
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">
-                  {isExit ? 'Realized Fees (Trading + Funding)' : 'Fees for this addition'}
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-300 font-bold outline-none focus:ring-2 focus:ring-slate-500"
-                  value={fees}
-                  onChange={(e) => setFees(e.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
+              {isExit && (
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Closing Comments / Post-Mortem</label>
+                  <textarea
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-20 resize-none"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="E.g. TP hit, Trailing SL hit, or Closed early due to FOMO..."
+                  ></textarea>
+                </div>
+              )}
 
               {isAdd && (
                 <>
@@ -226,18 +222,22 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                       required
                     />
                   </div>
-                  <div>
-                    <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">New Leverage (Global)</label>
-                    <input
-                      type="number"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
-                      value={leverage}
-                      onChange={(e) => setLeverage(Number(e.target.value))}
-                      required
-                    />
-                  </div>
                 </>
               )}
+
+              <div>
+                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">
+                  Realized Fees
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-300 font-bold outline-none"
+                  value={fees}
+                  onChange={(e) => setFees(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
             </>
           )}
 
@@ -250,7 +250,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                 'bg-amber-600 hover:bg-amber-500 text-white'
               }`}
             >
-              {isExit ? 'Confirm Close Position' : isAdd ? 'Confirm Position Increase' : 'Save Trade Changes'}
+              {isExit ? 'Confirm Close Position' : isAdd ? 'Confirm Increase' : 'Save Changes'}
             </button>
           </div>
         </form>
