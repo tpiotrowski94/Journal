@@ -192,31 +192,31 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
             className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-20 resize-none focus:ring-1 focus:ring-blue-500/50"
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            placeholder="Why this trade? (e.g. Trendline bounce, RSI oversold, Volume spike...)"
+            placeholder="Why this trade? (e.g. Trendline bounce, RSI oversold...)"
           ></textarea>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Stop Loss</label>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-rose-400">Stop Loss</label>
             <input
               type="number"
               step="any"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-rose-500 outline-none font-bold text-xs"
               value={formData.stopLoss}
               onChange={(e) => setFormData({ ...formData, stopLoss: e.target.value })}
-              placeholder="SL Price"
+              placeholder="SL"
             />
           </div>
           <div>
-            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Exit Price (Manual)</label>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-blue-400">Exit (History)</label>
             <input
               type="number"
               step="any"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none font-bold text-xs"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-blue-400 outline-none font-bold text-xs"
               value={formData.exitPrice}
               onChange={(e) => setFormData({ ...formData, exitPrice: e.target.value })}
-              placeholder="Empty = OPEN"
+              placeholder="Exit"
             />
           </div>
         </div>

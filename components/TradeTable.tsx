@@ -76,7 +76,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
               <th className="px-4 py-4">Conv.</th>
               <th className="px-4 py-4">Entry / Exit</th>
               <th className="px-4 py-4">Fees</th>
-              <th className="px-4 py-4 text-right">Risk (Portfolio %)</th>
+              <th className="px-4 py-4 text-right">Risk</th>
               <th className="px-4 py-4 text-right">PnL</th>
               <th className="px-4 py-4 text-center">Actions</th>
             </tr>
@@ -138,7 +138,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                           {trade.exitPrice !== null ? (
                             <span className="text-slate-100">${Number(trade.exitPrice).toLocaleString()}</span>
                           ) : (
-                            <span className="text-blue-400 text-[9px] tracking-widest font-black animate-pulse">OPEN</span>
+                            <span className="text-blue-400 text-[9px] tracking-widest font-black animate-pulse">ACTIVE POS</span>
                           )}
                         </div>
                       </div>
@@ -147,25 +147,23 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                       <div className="text-xs font-black text-slate-300 whitespace-nowrap">
                         {feesVal > 0 ? `-$${feesVal.toFixed(2)}` : '$0.00'}
                       </div>
+                      <div className="text-[8px] text-slate-500 uppercase font-black">{trade.amount} Qty</div>
                     </td>
                     <td className="px-4 py-4 text-right align-top">
                       <div className={`font-black text-xs ${isNoSL ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
-                        {walletRiskPct}% {isNoSL ? 'LIQ' : ''}
-                      </div>
-                      <div className="text-[9px] text-slate-300 font-bold uppercase mt-1">
-                        ${riskVal.toFixed(2)}
+                        SL: {isNoSL ? 'LIQ' : `$${trade.stopLoss}`} <span className="text-[9px] opacity-70">({walletRiskPct}%)</span>
                       </div>
                     </td>
                     <td className={`px-4 py-4 text-right align-top`}>
                       {trade.status === TradeStatus.OPEN ? (
-                        <span className="text-[9px] font-black text-blue-500 bg-blue-500/10 border border-blue-500/30 px-2 py-1 rounded-lg uppercase tracking-wider">ACTIVE</span>
+                        <span className="text-[9px] font-black text-blue-400 bg-blue-500/10 border border-blue-500/30 px-2 py-1 rounded-lg uppercase tracking-wider">OPEN</span>
                       ) : (
                         <div className="leading-tight">
                           <div className={`font-black text-base ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)}
                           </div>
-                          <div className={`text-[10px] font-black uppercase ${pnlVal >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {pnlPctVal >= 0 ? '+' : ''}{pnlPctVal.toFixed(1)}%
+                          <div className={`text-[10px] font-black uppercase ${pnlVal >= 0 ? 'text-emerald-600/80' : 'text-rose-500'}`}>
+                            {(pnlPctVal >= 0 ? '+' : '') + pnlPctVal.toFixed(1) + '%'}
                           </div>
                         </div>
                       )}
@@ -176,13 +174,15 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                           <>
                             <button 
                               onClick={() => setModalState({ type: 'EXIT', trade })} 
-                              className="bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all border border-blue-500/20"
+                              className="bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase transition-all border border-blue-500/20"
+                              title="Close Position"
                             >
                               Exit
                             </button>
                             <button 
                               onClick={() => setModalState({ type: 'ADD', trade })} 
-                              className="text-emerald-500 hover:text-emerald-400 p-1.5"
+                              className="text-slate-400 hover:text-emerald-400 p-1.5"
+                              title="Scale In"
                             >
                               <i className="fas fa-plus-circle"></i>
                             </button>
@@ -208,7 +208,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                        <div className="flex items-start gap-2 pl-[4.5rem]">
                           <i className="fas fa-comment-alt text-[10px] text-slate-600 mt-1"></i>
                           <p className="text-[11px] text-slate-400 font-medium italic leading-relaxed">
-                            {trade.notes || "No strategy notes for this entry."}
+                            {trade.notes || "No strategy notes documented."}
                           </p>
                        </div>
                     </td>

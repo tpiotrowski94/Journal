@@ -204,7 +204,8 @@ const App: React.FC = () => {
           entryPrice: Number(updatedData.entryPrice) || 0,
           amount: Number(updatedData.amount) || 0,
           fees: Number(updatedData.fees) || 0,
-          leverage: Number(updatedData.leverage) || 1
+          leverage: Number(updatedData.leverage) || 1,
+          stopLoss: updatedData.stopLoss ? Number(updatedData.stopLoss) : null
         };
         const initialRisk = calculateInitialRisk(updated);
         const { pnl, pnlPercentage } = calculatePnl(updated);
