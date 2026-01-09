@@ -4,7 +4,7 @@ import { Trade, TradeType, MarginMode, TradeStatus } from '../types';
 
 interface TradeActionModalProps {
   trade: Trade;
-  type: 'ADD' | 'EXIT' | 'EDIT';
+  type: 'ADD' | 'EXIT' | 'EDIT' | 'LOG';
   onClose: () => void;
   onConfirm: (data: any) => void;
 }
@@ -14,7 +14,8 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
   const [amount, setAmount] = useState<string>('');
   const [leverage, setLeverage] = useState<number>(trade.leverage);
   const [fees, setFees] = useState<string>('0');
-  const [notes, setNotes] = useState<string>(trade.notes || '');
+  const [logText, setLogText] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
 
   const [editData, setEditData] = useState({
     symbol: trade.symbol,
@@ -26,7 +27,6 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
     stopLoss: trade.stopLoss?.toString() || '',
     amount: trade.amount.toString(),
     fees: trade.fees.toString(),
-    notes: trade.notes || '',
   });
 
   useEffect(() => {
@@ -41,7 +41,6 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         stopLoss: trade.stopLoss?.toString() || '',
         amount: trade.amount.toString(),
         fees: trade.fees.toString(),
-        notes: trade.notes || '',
       });
     }
   }, [type, trade]);
@@ -68,12 +67,15 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         amount: parseFloat(editData.amount),
         fees: parseFloat(editData.fees) || 0,
       });
+    } else if (type === 'LOG') {
+      if (logText.trim()) onConfirm({ text: logText.trim() });
     }
   };
 
   const isEdit = type === 'EDIT';
   const isAdd = type === 'ADD';
   const isExit = type === 'EXIT';
+  const isLog = type === 'LOG';
   const isClosed = trade.status === TradeStatus.CLOSED;
 
   return (
@@ -83,7 +85,8 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
           <h3 className="text-lg font-black text-white uppercase italic tracking-tighter">
             {isExit && <><i className="fas fa-door-open text-blue-400 mr-2"></i> Close Position</>}
             {isAdd && <><i className="fas fa-plus-circle text-emerald-400 mr-2"></i> Scale In Position</>}
-            {isEdit && <><i className="fas fa-edit text-amber-400 mr-2"></i> Edit Trade Details</>}
+            {isEdit && <><i className="fas fa-cog text-amber-400 mr-2"></i> Global Parameters</>}
+            {isLog && <><i className="fas fa-file-pen text-emerald-400 mr-2"></i> Add Log Entry</>}
           </h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
             <i className="fas fa-times text-lg"></i>
@@ -91,7 +94,19 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {isEdit ? (
+          {isLog ? (
+            <div>
+              <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest">New Journal Entry</label>
+              <textarea
+                autoFocus
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none font-medium text-xs h-40 resize-none focus:ring-2 focus:ring-emerald-500/50 shadow-inner"
+                value={logText}
+                onChange={(e) => setLogText(e.target.value)}
+                placeholder="Write update about this position (e.g., hit first target, RSI divergence on 4H...)"
+                required
+              ></textarea>
+            </div>
+          ) : isEdit ? (
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -205,15 +220,6 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                   </div>
                 )}
               </div>
-
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Update Notes</label>
-                <textarea
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-24 resize-none"
-                  value={editData.notes}
-                  onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                ></textarea>
-              </div>
             </>
           ) : (
             <>
@@ -235,7 +241,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
 
               {isExit && (
                 <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Exit Notes</label>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Final Closing Note</label>
                   <textarea
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-20 resize-none"
                     value={notes}
@@ -284,10 +290,11 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
               className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg ${
                 isExit ? 'bg-blue-600 hover:bg-blue-500 text-white' : 
                 isAdd ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 
+                isLog ? 'bg-emerald-600 hover:bg-emerald-500 text-white' :
                 'bg-amber-600 hover:bg-amber-500 text-white'
               }`}
             >
-              {isExit ? 'Confirm Exit' : isAdd ? 'Confirm Scale In' : 'Save Changes'}
+              {isExit ? 'Confirm Exit' : isAdd ? 'Confirm Scale In' : isLog ? 'Save Entry' : 'Save Changes'}
             </button>
           </div>
         </form>

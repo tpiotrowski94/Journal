@@ -14,6 +14,12 @@ export enum MarginMode {
   CROSS = 'CROSS'
 }
 
+export interface NoteEntry {
+  id: string;
+  text: string;
+  date: string;
+}
+
 export interface Trade {
   id: string;
   symbol: string;
@@ -27,7 +33,7 @@ export interface Trade {
   amount: number;
   fees: number;
   date: string;
-  notes: string;
+  notes: NoteEntry[];
   pnl: number;
   pnlPercentage: number;
   confidence: number;

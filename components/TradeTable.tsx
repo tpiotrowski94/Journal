@@ -9,12 +9,13 @@ interface TradeTableProps {
   onCloseTrade: (id: string, exitPrice: number, exitFees: number, notes?: string) => void;
   onAddToPosition: (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number) => void;
   onEditTrade: (id: string, updatedData: any) => void;
+  onAddNote: (id: string, text: string) => void;
   onExport?: () => void;
   walletBalance: number;
 }
 
-const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade, onAddToPosition, onEditTrade, onExport, walletBalance }) => {
-  const [modalState, setModalState] = useState<{ type: 'ADD' | 'EXIT' | 'EDIT', trade: Trade } | null>(null);
+const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade, onAddToPosition, onEditTrade, onAddNote, onExport, walletBalance }) => {
+  const [modalState, setModalState] = useState<{ type: 'ADD' | 'EXIT' | 'EDIT' | 'LOG', trade: Trade } | null>(null);
 
   const handleModalConfirm = (data: any) => {
     if (!modalState) return;
@@ -25,6 +26,8 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
       onAddToPosition(modalState.trade.id, data.amount, data.price, data.fees, data.leverage);
     } else if (modalState.type === 'EDIT') {
       onEditTrade(modalState.trade.id, data);
+    } else if (modalState.type === 'LOG') {
+      onAddNote(modalState.trade.id, data.text);
     }
     setModalState(null);
   };
@@ -32,10 +35,9 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
   const formatTradeDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
-      const date = d.toISOString().split('T')[0];
-      return { date };
+      return d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
     } catch (e) {
-      return { date: dateStr || '-' };
+      return dateStr || '-';
     }
   };
 
@@ -99,8 +101,6 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                 ? ((riskVal / balanceVal) * 100).toFixed(2)
                 : "0.00";
 
-              const { date } = formatTradeDate(trade.date);
-              const isNoSL = !trade.stopLoss;
               const conf = trade.confidence || 3;
 
               return (
@@ -110,7 +110,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                       <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-tight shadow-sm ${trade.type === TradeType.LONG ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
                         {trade.type}
                       </span>
-                      <div className="text-[8px] text-slate-400 font-bold mt-2 opacity-80 uppercase">{date}</div>
+                      <div className="text-[8px] text-slate-400 font-bold mt-2 opacity-80 uppercase">{formatTradeDate(trade.date).split(',')[0]}</div>
                     </td>
                     <td className="px-4 py-4 align-top">
                       <div className="font-black text-white text-sm md:text-base tracking-tight group-hover:text-emerald-400 transition-colors">{trade.symbol}</div>
@@ -150,8 +150,8 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                       <div className="text-[8px] text-slate-500 uppercase font-black">{trade.amount} Qty</div>
                     </td>
                     <td className="px-4 py-4 text-right align-top">
-                      <div className={`font-black text-xs ${isNoSL ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
-                        SL: {isNoSL ? 'LIQ' : `$${trade.stopLoss}`} <span className="text-[9px] opacity-70">({walletRiskPct}%)</span>
+                      <div className={`font-black text-xs ${!trade.stopLoss ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
+                        SL: {!trade.stopLoss ? 'LIQ' : `$${trade.stopLoss}`} <span className="text-[9px] opacity-70">({walletRiskPct}%)</span>
                       </div>
                     </td>
                     <td className={`px-4 py-4 text-right align-top`}>
@@ -169,30 +169,28 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                       )}
                     </td>
                     <td className="px-4 py-4 align-top">
-                      <div className="flex justify-center items-center gap-2">
-                        {trade.status === TradeStatus.OPEN ? (
-                          <>
-                            <button 
-                              onClick={() => setModalState({ type: 'EXIT', trade })} 
-                              className="bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase transition-all border border-blue-500/20"
-                              title="Close Position"
-                            >
-                              Exit
-                            </button>
-                            <button 
-                              onClick={() => setModalState({ type: 'ADD', trade })} 
-                              className="text-slate-400 hover:text-emerald-400 p-1.5"
-                              title="Scale In"
-                            >
-                              <i className="fas fa-plus-circle"></i>
-                            </button>
-                          </>
-                        ) : null}
+                      <div className="flex justify-center items-center gap-1.5">
+                        {trade.status === TradeStatus.OPEN && (
+                          <button 
+                            onClick={() => setModalState({ type: 'EXIT', trade })} 
+                            className="bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase transition-all border border-blue-500/20"
+                          >
+                            Exit
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => setModalState({ type: 'LOG', trade })} 
+                          className="bg-slate-700/50 text-slate-400 hover:text-emerald-400 p-1.5 rounded-lg transition-colors border border-transparent hover:border-emerald-500/20"
+                          title="Add Log Entry"
+                        >
+                          <i className="fas fa-file-pen text-sm"></i>
+                        </button>
                         <button 
                           onClick={() => setModalState({ type: 'EDIT', trade })} 
                           className="text-slate-400 hover:text-white p-1.5 transition-colors"
+                          title="Edit Position"
                         >
-                          <i className="fas fa-edit text-sm"></i>
+                          <i className="fas fa-cog text-sm"></i>
                         </button>
                         <button 
                           onClick={() => onDelete(trade.id)} 
@@ -204,12 +202,19 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                     </td>
                   </tr>
                   <tr className={`${idx % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/30'} border-b border-slate-700/20`}>
-                    <td colSpan={8} className="px-4 pb-4 pt-0">
-                       <div className="flex items-start gap-2 pl-[4.5rem]">
-                          <i className="fas fa-comment-alt text-[10px] text-slate-600 mt-1"></i>
-                          <p className="text-[11px] text-slate-400 font-medium italic leading-relaxed">
-                            {trade.notes || "No strategy notes documented."}
-                          </p>
+                    <td colSpan={8} className="px-4 pb-6 pt-0">
+                       <div className="ml-[4.5rem] mt-2 space-y-3 relative border-l-2 border-slate-700/50 pl-6 py-1">
+                          {Array.isArray(trade.notes) && trade.notes.length > 0 ? trade.notes.map((note) => (
+                            <div key={note.id} className="relative">
+                               <div className="absolute -left-[1.95rem] top-1.5 w-3 h-3 bg-slate-800 border-2 border-slate-600 rounded-full" />
+                               <div className="flex flex-col gap-0.5">
+                                 <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">{formatTradeDate(note.date)}</span>
+                                 <p className="text-[11px] text-slate-300 font-medium leading-relaxed max-w-2xl">{note.text}</p>
+                               </div>
+                            </div>
+                          )) : (
+                            <p className="text-[10px] text-slate-600 italic uppercase font-black opacity-40">No entries documented.</p>
+                          )}
                        </div>
                     </td>
                   </tr>

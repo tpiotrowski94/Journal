@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Trade, TradeType, TradeStatus, TradingStats, Wallet, AppState } from './types';
+import { Trade, TradeType, TradeStatus, TradingStats, Wallet, AppState, NoteEntry } from './types';
 import TradeForm from './components/TradeForm';
 import TradeTable from './components/TradeTable';
 import Dashboard from './components/Dashboard';
@@ -150,12 +150,17 @@ const App: React.FC = () => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
         const totalFees = (Number(t.fees) || 0) + (Number(exitFees) || 0);
+        const newNotes = [...t.notes];
+        if (updatedNotes?.trim()) {
+           newNotes.push({ id: crypto.randomUUID(), text: `EXIT: ${updatedNotes}`, date: new Date().toISOString() });
+        }
+        
         const updated = { 
           ...t, 
           exitPrice: Number(exitPrice), 
           fees: totalFees, 
           status: TradeStatus.CLOSED,
-          notes: updatedNotes !== undefined ? updatedNotes : t.notes 
+          notes: newNotes
         };
         const { pnl, pnlPercentage } = calculatePnl(updated);
         return { 
@@ -215,6 +220,18 @@ const App: React.FC = () => {
           initialRisk: isFinite(initialRisk) ? initialRisk : 0, 
           pnl: isFinite(pnl) ? pnl : 0, 
           pnlPercentage: isFinite(pnlPercentage) ? pnlPercentage : 0 
+        };
+      }
+      return t;
+    }));
+  };
+
+  const handleAddNote = (id: string, text: string) => {
+    setTrades(prev => prev.map(t => {
+      if (t.id === id) {
+        return {
+          ...t,
+          notes: [...(Array.isArray(t.notes) ? t.notes : []), { id: crypto.randomUUID(), text, date: new Date().toISOString() }]
         };
       }
       return t;
@@ -421,6 +438,7 @@ const App: React.FC = () => {
               onCloseTrade={handleCloseTrade} 
               onAddToPosition={handleAddToPosition}
               onEditTrade={handleEditTrade}
+              onAddNote={handleAddNote}
               walletBalance={stats.currentBalance}
               onExport={handleExport}
             />

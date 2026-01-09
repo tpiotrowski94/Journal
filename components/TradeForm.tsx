@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trade, TradeType, TradeStatus, MarginMode } from '../types';
+import { Trade, TradeType, TradeStatus, MarginMode, NoteEntry } from '../types';
 
 interface TradeFormProps {
   onAddTrade: (trade: Omit<Trade, 'id' | 'pnl' | 'pnlPercentage' | 'initialRisk'>) => void;
@@ -41,6 +41,11 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     if (!formData.symbol || !formData.entryPrice || !formData.amount) return;
 
     const isActuallyOpen = formData.exitPrice.trim() === '';
+    
+    // Create initial note if provided
+    const initialNotes: NoteEntry[] = formData.notes.trim() 
+      ? [{ id: crypto.randomUUID(), text: formData.notes, date: getNowISO() }]
+      : [];
 
     onAddTrade({
       symbol: formData.symbol.toUpperCase(),
@@ -54,7 +59,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
       amount: parseFloat(formData.amount) || 0,
       fees: parseFloat(formData.fees) || 0,
       date: formData.date,
-      notes: formData.notes,
+      notes: initialNotes,
       confidence: formData.confidence
     });
 
@@ -187,12 +192,12 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
         </div>
 
         <div>
-          <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Strategy & Entry Guidelines</label>
+          <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">First Log Entry</label>
           <textarea
             className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-20 resize-none focus:ring-1 focus:ring-blue-500/50"
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            placeholder="Why this trade? (e.g. Trendline bounce, RSI oversold...)"
+            placeholder="Setup description..."
           ></textarea>
         </div>
 
