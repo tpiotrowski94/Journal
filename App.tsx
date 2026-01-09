@@ -202,6 +202,7 @@ const App: React.FC = () => {
           ...t, 
           ...updatedData,
           entryPrice: Number(updatedData.entryPrice) || 0,
+          exitPrice: updatedData.exitPrice !== undefined ? (updatedData.exitPrice === null ? null : Number(updatedData.exitPrice)) : t.exitPrice,
           amount: Number(updatedData.amount) || 0,
           fees: Number(updatedData.fees) || 0,
           leverage: Number(updatedData.leverage) || 1,

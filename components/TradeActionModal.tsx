@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trade, TradeType, MarginMode } from '../types';
+import { Trade, TradeType, MarginMode, TradeStatus } from '../types';
 
 interface TradeActionModalProps {
   trade: Trade;
@@ -22,6 +22,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
     marginMode: trade.marginMode,
     leverage: trade.leverage,
     entryPrice: trade.entryPrice.toString(),
+    exitPrice: trade.exitPrice?.toString() || '',
     stopLoss: trade.stopLoss?.toString() || '',
     amount: trade.amount.toString(),
     fees: trade.fees.toString(),
@@ -36,6 +37,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         marginMode: trade.marginMode,
         leverage: trade.leverage,
         entryPrice: trade.entryPrice.toString(),
+        exitPrice: trade.exitPrice?.toString() || '',
         stopLoss: trade.stopLoss?.toString() || '',
         amount: trade.amount.toString(),
         fees: trade.fees.toString(),
@@ -61,6 +63,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         ...editData,
         leverage: Number(editData.leverage),
         entryPrice: parseFloat(editData.entryPrice),
+        exitPrice: editData.exitPrice ? parseFloat(editData.exitPrice) : null,
         stopLoss: editData.stopLoss ? parseFloat(editData.stopLoss) : null,
         amount: parseFloat(editData.amount),
         fees: parseFloat(editData.fees) || 0,
@@ -71,6 +74,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
   const isEdit = type === 'EDIT';
   const isAdd = type === 'ADD';
   const isExit = type === 'EXIT';
+  const isClosed = trade.status === TradeStatus.CLOSED;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -112,6 +116,20 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                   />
                 </div>
               </div>
+
+              {isClosed && (
+                <div>
+                  <label className="block text-[9px] font-black text-blue-400 mb-1 uppercase tracking-widest">Exit Price (Realized)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-blue-400 font-bold outline-none ring-1 ring-blue-500/30 focus:ring-blue-500"
+                    value={editData.exitPrice}
+                    onChange={(e) => setEditData({ ...editData, exitPrice: e.target.value })}
+                    required={isClosed}
+                  />
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -164,7 +182,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Fees</label>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Total Fees Paid</label>
                   <input
                     type="number"
                     step="any"
@@ -174,16 +192,18 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-rose-400">Stop Loss</label>
-                  <input
-                    type="number"
-                    step="any"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-rose-500 font-bold outline-none"
-                    value={editData.stopLoss}
-                    onChange={(e) => setEditData({ ...editData, stopLoss: e.target.value })}
-                  />
-                </div>
+                {!isClosed && (
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-rose-400">Stop Loss</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-rose-500 font-bold outline-none"
+                      value={editData.stopLoss}
+                      onChange={(e) => setEditData({ ...editData, stopLoss: e.target.value })}
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
