@@ -116,6 +116,7 @@ const App: React.FC = () => {
   const stats = useMemo<TradingStats>(() => {
     const closedTrades = trades.filter(t => t.status === TradeStatus.CLOSED);
     const totalPnl = closedTrades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+    const totalTradeReturn = closedTrades.reduce((sum, t) => sum + (Number(t.pnlPercentage) || 0), 0);
     const wins = closedTrades.filter(t => (Number(t.pnl) || 0) > 0).length;
     const initialBalance = Number(activeWallet?.initialBalance) || 0;
     const currentBalance = initialBalance + totalPnl;
@@ -128,6 +129,7 @@ const App: React.FC = () => {
       winRate: closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0,
       totalPnl: isFinite(totalPnl) ? totalPnl : 0,
       totalPnlPercentage: initialBalance !== 0 ? (totalPnl / initialBalance) * 100 : 0,
+      totalTradeReturn: isFinite(totalTradeReturn) ? totalTradeReturn : 0,
       bestTrade: closedTrades.length > 0 ? Math.max(...closedTrades.map(t => Number(t.pnl) || 0)) : 0,
       worstTrade: closedTrades.length > 0 ? Math.min(...closedTrades.map(t => Number(t.pnl) || 0)) : 0
     };

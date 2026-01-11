@@ -54,6 +54,7 @@ export interface TradingStats {
   winRate: number;
   totalPnl: number;
   totalPnlPercentage: number;
+  totalTradeReturn: number; // Sum of individual trade %
   bestTrade: number;
   worstTrade: number;
 }

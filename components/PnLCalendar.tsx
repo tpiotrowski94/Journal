@@ -18,21 +18,23 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  const dailyPnL = useMemo(() => {
-    const map: Record<string, number> = {};
+  const dailyStats = useMemo(() => {
+    const map: Record<string, { pnl: number, pct: number }> = {};
     trades.filter(t => t.status === TradeStatus.CLOSED).forEach(t => {
       const d = new Date(t.date).toISOString().split('T')[0];
-      map[d] = (map[d] || 0) + t.pnl;
+      if (!map[d]) map[d] = { pnl: 0, pct: 0 };
+      map[d].pnl += t.pnl;
+      map[d].pct += t.pnlPercentage;
     });
     return map;
   }, [trades]);
 
   const maxAbsPnL = useMemo(() => {
-    const values = Object.keys(dailyPnL)
+    const values = Object.keys(dailyStats)
       .filter(key => key.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
-      .map(key => Math.abs(dailyPnL[key]));
+      .map(key => Math.abs(dailyStats[key].pnl));
     return values.length > 0 ? Math.max(...values) : 1;
-  }, [dailyPnL, year, month]);
+  }, [dailyStats, year, month]);
 
   const monthStats = useMemo(() => {
     const monthTrades = trades.filter(t => {
@@ -40,9 +42,11 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
       return d.getMonth() === month && d.getFullYear() === year && t.status === TradeStatus.CLOSED;
     });
     const pnl = monthTrades.reduce((sum, t) => sum + t.pnl, 0);
+    const pct = monthTrades.reduce((sum, t) => sum + t.pnlPercentage, 0);
     const wins = monthTrades.filter(t => t.pnl > 0).length;
     return {
       pnl,
+      pct,
       winRate: monthTrades.length > 0 ? (wins / monthTrades.length) * 100 : 0
     };
   }, [trades, month, year]);
@@ -63,32 +67,37 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
 
     for (let d = 1; d <= totalDays; d++) {
       const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const pnl = dailyPnL[dateKey];
+      const stats = dailyStats[dateKey];
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
-      const barHeight = pnl ? (Math.abs(pnl) / maxAbsPnL) * 60 : 0;
+      const barHeight = stats ? (Math.abs(stats.pnl) / maxAbsPnL) * 50 : 0;
 
       days.push(
         <div 
           key={d} 
-          className={`h-20 md:h-28 p-1.5 border rounded-xl flex flex-col items-center justify-between transition-all relative overflow-hidden ${
+          className={`h-20 md:h-28 p-1.5 border rounded-xl flex flex-col items-center transition-all relative overflow-hidden ${
             isToday ? 'border-blue-500/50 bg-blue-500/5' : 'border-slate-800 bg-slate-900/20'
           }`}
         >
           <span className={`text-[9px] font-black self-start ${isToday ? 'text-blue-400' : 'text-slate-600'}`}>{d}</span>
           
           <div className="flex-1 w-full flex items-center justify-center relative">
-            {pnl !== undefined && (
+            {stats !== undefined && (
               <div 
-                className={`w-2 md:w-3 rounded-t-sm transition-all duration-700 ${pnl >= 0 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}
+                className={`w-1.5 md:w-2.5 rounded-t-sm transition-all duration-700 ${stats.pnl >= 0 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}
                 style={{ height: `${Math.max(barHeight, 5)}%` }}
               />
             )}
           </div>
 
-          {pnl !== undefined && (
-            <div className={`text-[8px] md:text-[10px] font-black truncate ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {pnl >= 0 ? '+' : ''}{pnl.toFixed(0)}$
+          {stats !== undefined && (
+            <div className="text-center w-full leading-tight mt-1">
+              <div className={`text-[8px] md:text-[10px] font-black truncate ${stats.pct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {stats.pct >= 0 ? '+' : ''}{stats.pct.toFixed(1)}%
+              </div>
+              <div className={`text-[7px] md:text-[9px] font-bold truncate opacity-80 ${stats.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(0)}$
+              </div>
             </div>
           )}
         </div>
@@ -110,15 +119,20 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="hidden md:flex gap-4 border-r border-slate-700 pr-4">
+          <div className="hidden md:flex gap-6 border-r border-slate-700 pr-6">
             <div className="text-center">
-              <div className="text-[8px] font-black text-slate-500 uppercase">Monthly P&L</div>
-              <div className={`text-xs font-black ${monthStats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {monthStats.pnl >= 0 ? '+' : ''}{monthStats.pnl.toFixed(2)}$
+              <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Monthly P&L</div>
+              <div className="flex flex-col items-center leading-none">
+                <span className={`text-xs font-black ${monthStats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {monthStats.pnl >= 0 ? '+' : ''}{monthStats.pnl.toFixed(2)}$
+                </span>
+                <span className={`text-[9px] font-black mt-0.5 ${monthStats.pct >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
+                  {monthStats.pct >= 0 ? '+' : ''}{monthStats.pct.toFixed(1)}%
+                </span>
               </div>
             </div>
             <div className="text-center">
-              <div className="text-[8px] font-black text-slate-500 uppercase">Win Rate</div>
+              <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Win Rate</div>
               <div className="text-xs font-black text-blue-400">{monthStats.winRate.toFixed(1)}%</div>
             </div>
           </div>
