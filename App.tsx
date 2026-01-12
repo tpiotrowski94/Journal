@@ -228,6 +228,31 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleUpdateNote = (tradeId: string, noteId: string, newText: string) => {
+    setTrades(prev => prev.map(t => {
+      if (t.id === tradeId) {
+        return {
+          ...t,
+          notes: t.notes.map(n => n.id === noteId ? { ...n, text: newText } : n)
+        };
+      }
+      return t;
+    }));
+  };
+
+  const handleDeleteNote = (tradeId: string, noteId: string) => {
+    if (!confirm("Are you sure you want to delete this entry?")) return;
+    setTrades(prev => prev.map(t => {
+      if (t.id === tradeId) {
+        return {
+          ...t,
+          notes: t.notes.filter(n => n.id !== noteId)
+        };
+      }
+      return t;
+    }));
+  };
+
   const handleAddNote = (id: string, text: string) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
@@ -441,6 +466,8 @@ const App: React.FC = () => {
               onAddToPosition={handleAddToPosition}
               onEditTrade={handleEditTrade}
               onAddNote={handleAddNote}
+              onUpdateNote={handleUpdateNote}
+              onDeleteNote={handleDeleteNote}
               walletBalance={stats.currentBalance}
               onExport={handleExport}
             />

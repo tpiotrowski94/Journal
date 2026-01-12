@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Trade, TradeStatus, TradeType } from '../types';
+import { Trade, TradeStatus, TradeType, NoteEntry } from '../types';
 import TradeActionModal from './TradeActionModal';
 
 interface TradeTableProps {
@@ -10,12 +10,21 @@ interface TradeTableProps {
   onAddToPosition: (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number) => void;
   onEditTrade: (id: string, updatedData: any) => void;
   onAddNote: (id: string, text: string) => void;
+  onUpdateNote: (tradeId: string, noteId: string, text: string) => void;
+  onDeleteNote: (tradeId: string, noteId: string) => void;
   onExport?: () => void;
   walletBalance: number;
 }
 
-const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade, onAddToPosition, onEditTrade, onAddNote, onExport, walletBalance }) => {
-  const [modalState, setModalState] = useState<{ type: 'ADD' | 'EXIT' | 'EDIT' | 'LOG', trade: Trade } | null>(null);
+const TradeTable: React.FC<TradeTableProps> = ({ 
+  trades, onDelete, onCloseTrade, onAddToPosition, onEditTrade, 
+  onAddNote, onUpdateNote, onDeleteNote, onExport, walletBalance 
+}) => {
+  const [modalState, setModalState] = useState<{ 
+    type: 'ADD' | 'EXIT' | 'EDIT' | 'LOG' | 'EDIT_NOTE', 
+    trade: Trade,
+    extra?: { note?: NoteEntry }
+  } | null>(null);
 
   const handleModalConfirm = (data: any) => {
     if (!modalState) return;
@@ -28,6 +37,8 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
       onEditTrade(modalState.trade.id, data);
     } else if (modalState.type === 'LOG') {
       onAddNote(modalState.trade.id, data.text);
+    } else if (modalState.type === 'EDIT_NOTE' && modalState.extra?.note) {
+      onUpdateNote(modalState.trade.id, modalState.extra.note.id, data.text);
     }
     setModalState(null);
   };
@@ -54,6 +65,7 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
         <TradeActionModal 
           trade={modalState.trade}
           type={modalState.type}
+          extra={modalState.extra}
           onClose={() => setModalState(null)}
           onConfirm={handleModalConfirm}
         />
@@ -102,6 +114,11 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                 : "0.00";
 
               const conf = trade.confidence || 3;
+
+              // Sort notes by date descending (newest on top)
+              const sortedNotes = Array.isArray(trade.notes) 
+                ? [...trade.notes].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                : [];
 
               return (
                 <React.Fragment key={trade.id}>
@@ -204,12 +221,30 @@ const TradeTable: React.FC<TradeTableProps> = ({ trades, onDelete, onCloseTrade,
                   <tr className={`${idx % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/30'} border-b border-slate-700/20`}>
                     <td colSpan={8} className="px-4 pb-6 pt-0">
                        <div className="ml-[4.5rem] mt-2 space-y-3 relative border-l-2 border-slate-700/50 pl-6 py-1">
-                          {Array.isArray(trade.notes) && trade.notes.length > 0 ? trade.notes.map((note) => (
-                            <div key={note.id} className="relative">
+                          {sortedNotes.length > 0 ? sortedNotes.map((note) => (
+                            <div key={note.id} className="relative group/note">
                                <div className="absolute -left-[1.95rem] top-1.5 w-3 h-3 bg-slate-800 border-2 border-slate-600 rounded-full" />
                                <div className="flex flex-col gap-0.5">
-                                 <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">{formatTradeDate(note.date)}</span>
-                                 <p className="text-[11px] text-slate-300 font-medium leading-relaxed max-w-2xl">{note.text}</p>
+                                 <div className="flex justify-between items-center max-w-2xl">
+                                    <div className="flex items-center gap-2">
+                                       <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">{formatTradeDate(note.date)}</span>
+                                       {/* Highlight latest note */}
+                                       {note.id === sortedNotes[0].id && (
+                                         <span className="text-[7px] bg-emerald-500/10 text-emerald-500 px-1 rounded font-black uppercase">Latest</span>
+                                       )}
+                                    </div>
+                                    <div className="flex gap-2 opacity-0 group-hover/note:opacity-100 transition-opacity">
+                                       <button 
+                                          onClick={() => setModalState({ type: 'EDIT_NOTE', trade, extra: { note } })}
+                                          className="text-[9px] text-emerald-500 font-black uppercase hover:underline"
+                                       >Edit</button>
+                                       <button 
+                                          onClick={() => onDeleteNote(trade.id, note.id)}
+                                          className="text-[9px] text-rose-500 font-black uppercase hover:underline"
+                                       >Delete</button>
+                                    </div>
+                                 </div>
+                                 <p className="text-[11px] text-slate-300 font-medium leading-relaxed max-w-2xl whitespace-pre-wrap">{note.text}</p>
                                </div>
                             </div>
                           )) : (

@@ -189,6 +189,30 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Leverage</label>
+              <input
+                type="number"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
+                value={formData.leverage}
+                onChange={(e) => setFormData({ ...formData, leverage: Number(e.target.value) })}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Opening Fees</label>
+              <input
+                type="number"
+                step="any"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
+                value={formData.fees}
+                onChange={(e) => setFormData({ ...formData, fees: e.target.value })}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
         </div>
 
         <div>

@@ -1,15 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
-import { Trade, TradeType, MarginMode, TradeStatus } from '../types';
+import { Trade, TradeType, MarginMode, TradeStatus, NoteEntry } from '../types';
 
 interface TradeActionModalProps {
   trade: Trade;
-  type: 'ADD' | 'EXIT' | 'EDIT' | 'LOG';
+  type: 'ADD' | 'EXIT' | 'EDIT' | 'LOG' | 'EDIT_NOTE';
+  extra?: { note?: NoteEntry };
   onClose: () => void;
   onConfirm: (data: any) => void;
 }
 
-const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClose, onConfirm }) => {
+const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra, onClose, onConfirm }) => {
   const [price, setPrice] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [leverage, setLeverage] = useState<number>(trade.leverage);
@@ -42,8 +43,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         amount: trade.amount.toString(),
         fees: trade.fees.toString(),
       });
+    } else if (type === 'EDIT_NOTE' && extra?.note) {
+      setLogText(extra.note.text);
     }
-  }, [type, trade]);
+  }, [type, trade, extra]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,7 +70,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         amount: parseFloat(editData.amount),
         fees: parseFloat(editData.fees) || 0,
       });
-    } else if (type === 'LOG') {
+    } else if (type === 'LOG' || type === 'EDIT_NOTE') {
       if (logText.trim()) onConfirm({ text: logText.trim() });
     }
   };
@@ -75,7 +78,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
   const isEdit = type === 'EDIT';
   const isAdd = type === 'ADD';
   const isExit = type === 'EXIT';
-  const isLog = type === 'LOG';
+  const isLog = type === 'LOG' || type === 'EDIT_NOTE';
   const isClosed = trade.status === TradeStatus.CLOSED;
 
   return (
@@ -86,7 +89,8 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
             {isExit && <><i className="fas fa-door-open text-blue-400 mr-2"></i> Close Position</>}
             {isAdd && <><i className="fas fa-plus-circle text-emerald-400 mr-2"></i> Scale In Position</>}
             {isEdit && <><i className="fas fa-cog text-amber-400 mr-2"></i> Global Parameters</>}
-            {isLog && <><i className="fas fa-file-pen text-emerald-400 mr-2"></i> Add Log Entry</>}
+            {type === 'LOG' && <><i className="fas fa-file-pen text-emerald-400 mr-2"></i> Add Log Entry</>}
+            {type === 'EDIT_NOTE' && <><i className="fas fa-pen-to-square text-emerald-400 mr-2"></i> Edit Journal Entry</>}
           </h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
             <i className="fas fa-times text-lg"></i>
@@ -96,7 +100,9 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
         <form onSubmit={handleSubmit} className="space-y-4">
           {isLog ? (
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest">New Journal Entry</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest">
+                {type === 'LOG' ? 'New Journal Entry' : 'Update Journal Entry'}
+              </label>
               <textarea
                 autoFocus
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none font-medium text-xs h-40 resize-none focus:ring-2 focus:ring-emerald-500/50 shadow-inner"
@@ -294,7 +300,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, onClos
                 'bg-amber-600 hover:bg-amber-500 text-white'
               }`}
             >
-              {isExit ? 'Confirm Exit' : isAdd ? 'Confirm Scale In' : isLog ? 'Save Entry' : 'Save Changes'}
+              {isExit ? 'Confirm Exit' : isAdd ? 'Confirm Scale In' : isLog ? (type === 'LOG' ? 'Save Entry' : 'Update Entry') : 'Save Changes'}
             </button>
           </div>
         </form>
