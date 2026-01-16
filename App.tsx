@@ -313,6 +313,9 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const openTrades = useMemo(() => trades.filter(t => t.status === TradeStatus.OPEN), [trades]);
+  const closedTrades = useMemo(() => trades.filter(t => t.status === TradeStatus.CLOSED), [trades]);
+
   return (
     <div className="min-h-screen pb-12 bg-[#0f172a] text-slate-200">
       {isSettingsOpen && (
@@ -398,7 +401,37 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="lg:col-span-9 xl:col-span-9 space-y-8">
-            <TradeTable trades={trades} onDelete={handleDeleteTrade} onCloseTrade={handleCloseTrade} onAddToPosition={handleAddToPosition} onEditTrade={handleEditTrade} onAddNote={handleAddNote} onUpdateNote={handleUpdateNote} onDeleteNote={handleDeleteNote} walletBalance={stats.currentBalance} onExport={handleExport} />
+            <TradeTable 
+              title="Active Positions" 
+              trades={openTrades} 
+              status={TradeStatus.OPEN}
+              onDelete={handleDeleteTrade} 
+              onCloseTrade={handleCloseTrade} 
+              onAddToPosition={handleAddToPosition} 
+              onEditTrade={handleEditTrade} 
+              onAddNote={handleAddNote} 
+              onUpdateNote={handleUpdateNote} 
+              onDeleteNote={handleDeleteNote} 
+              walletBalance={stats.currentBalance} 
+              accentColor="emerald"
+              icon="fa-fire-alt"
+            />
+            <TradeTable 
+              title="Trade History" 
+              trades={closedTrades} 
+              status={TradeStatus.CLOSED}
+              onDelete={handleDeleteTrade} 
+              onCloseTrade={handleCloseTrade} 
+              onAddToPosition={handleAddToPosition} 
+              onEditTrade={handleEditTrade} 
+              onAddNote={handleAddNote} 
+              onUpdateNote={handleUpdateNote} 
+              onDeleteNote={handleDeleteNote} 
+              walletBalance={stats.currentBalance} 
+              onExport={handleExport}
+              accentColor="blue"
+              icon="fa-history"
+            />
             <PnLCalendar trades={trades} />
             <Charts trades={trades} />
           </div>
