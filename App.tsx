@@ -152,6 +152,11 @@ const App: React.FC = () => {
     setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, balanceAdjustment: newAdjustment } : w));
   };
 
+  const handleUpdateInitialBalance = (newInitial: number) => {
+    if (!activeWallet) return;
+    setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, initialBalance: newInitial } : w));
+  };
+
   const handleAddTrade = (newTradeData: Omit<Trade, 'id' | 'pnl' | 'pnlPercentage' | 'initialRisk'>) => {
     const initialRisk = calculateInitialRisk(newTradeData as any);
     const { pnl, pnlPercentage } = calculatePnl(newTradeData as any);
@@ -332,15 +337,6 @@ const App: React.FC = () => {
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">System działa w trybie offline. Twoje dane nigdy nie opuszczają tego urządzenia.</p>
               </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Kapitał Początkowy (Bench)</label>
-                <input 
-                  type="number" 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
-                  value={activeWallet?.initialBalance || 0}
-                  onChange={e => setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, initialBalance: parseFloat(e.target.value) || 0 } : w))}
-                />
-              </div>
               <div className="pt-4 border-t border-slate-700 space-y-3">
                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Backup i Przywracanie</h4>
                 <div className="grid grid-cols-2 gap-3">
@@ -382,7 +378,11 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-        <Dashboard stats={stats} onAdjustBalance={handleAdjustCurrentBalance} />
+        <Dashboard 
+          stats={stats} 
+          onAdjustBalance={handleAdjustCurrentBalance} 
+          onUpdateInitialBalance={handleUpdateInitialBalance} 
+        />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-3 xl:col-span-3 space-y-6">
             <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
@@ -400,7 +400,7 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="lg:col-span-9 xl:col-span-9 space-y-8">
+          <div className="lg:col-span-9 xl:col-span-9 space-y-12">
             <TradeTable 
               title="Active Positions" 
               trades={openTrades} 

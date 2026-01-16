@@ -5,18 +5,25 @@ import { TradingStats } from '../types';
 interface DashboardProps {
   stats: TradingStats;
   onAdjustBalance: (newBalance: number) => void;
+  onUpdateInitialBalance: (newInitial: number) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance }) => {
+const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateInitialBalance }) => {
   const [isEditingBalance, setIsEditingBalance] = useState(false);
+  const [isEditingInitial, setIsEditingInitial] = useState(false);
   const [balanceInput, setBalanceInput] = useState(stats.currentBalance.toString());
+  const [initialInput, setInitialInput] = useState(stats.initialBalance.toString());
 
   const handleBalanceSubmit = () => {
     const val = parseFloat(balanceInput);
-    if (!isNaN(val)) {
-      onAdjustBalance(val);
-    }
+    if (!isNaN(val)) onAdjustBalance(val);
     setIsEditingBalance(false);
+  };
+
+  const handleInitialSubmit = () => {
+    const val = parseFloat(initialInput);
+    if (!isNaN(val)) onUpdateInitialBalance(val);
+    setIsEditingInitial(false);
   };
 
   const totalCosts = stats.totalTradingFees + stats.totalFundingFees;
@@ -29,7 +36,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance }) => {
       color: 'text-white', 
       icon: 'fa-vault',
       bg: 'bg-slate-800',
-      isAdjustable: true
+      isAdjustable: 'equity'
     },
     { 
       label: 'Realized P&L & ROE', 
@@ -75,22 +82,30 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance }) => {
           
           <div className="flex justify-between items-start mb-2 relative z-10">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{card.label}</span>
-            {card.isAdjustable ? (
-              <button 
-                onClick={() => { setIsEditingBalance(true); setBalanceInput(stats.currentBalance.toFixed(2)); }}
-                className="text-slate-500 hover:text-blue-400 transition-colors p-1"
-                title="Dostosuj saldo rzeczywiste"
-              >
-                <i className="fas fa-pencil-alt text-[10px]"></i>
-              </button>
-            ) : (
-              <i className={`fas ${card.icon} ${card.color} text-[10px] opacity-70`}></i>
+            {card.isAdjustable === 'equity' && (
+              <div className="flex gap-1.5">
+                 <button 
+                  onClick={() => { setIsEditingInitial(true); setInitialInput(stats.initialBalance.toFixed(0)); }}
+                  className="text-slate-600 hover:text-emerald-400 transition-colors p-1"
+                  title="Edit Initial Portfolio Balance"
+                >
+                  <i className="fas fa-plus text-[9px]"></i>
+                </button>
+                <button 
+                  onClick={() => { setIsEditingBalance(true); setBalanceInput(stats.currentBalance.toFixed(2)); }}
+                  className="text-slate-600 hover:text-blue-400 transition-colors p-1"
+                  title="Adjust Current Real Equity"
+                >
+                  <i className="fas fa-pencil-alt text-[9px]"></i>
+                </button>
+              </div>
             )}
           </div>
 
           <div className="relative z-10">
-            {card.isAdjustable && isEditingBalance ? (
-              <div className="flex gap-2">
+            {isEditingBalance && card.isAdjustable === 'equity' ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-[7px] font-black text-blue-400 uppercase">Set Real Equity</span>
                 <input 
                   autoFocus
                   type="number"
@@ -100,6 +115,20 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance }) => {
                   onChange={(e) => setBalanceInput(e.target.value)}
                   onBlur={handleBalanceSubmit}
                   onKeyDown={(e) => e.key === 'Enter' && handleBalanceSubmit()}
+                />
+              </div>
+            ) : isEditingInitial && card.isAdjustable === 'equity' ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-[7px] font-black text-emerald-400 uppercase">Set Initial Base</span>
+                <input 
+                  autoFocus
+                  type="number"
+                  step="any"
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-white font-black w-full outline-none text-base"
+                  value={initialInput}
+                  onChange={(e) => setInitialInput(e.target.value)}
+                  onBlur={handleInitialSubmit}
+                  onKeyDown={(e) => e.key === 'Enter' && handleInitialSubmit()}
                 />
               </div>
             ) : (
