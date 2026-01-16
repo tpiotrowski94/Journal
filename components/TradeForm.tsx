@@ -24,6 +24,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     stopLoss: '',
     amount: '',
     fees: '0',
+    fundingFees: '0',
     date: getNowISO(),
     notes: '',
     confidence: 3
@@ -58,6 +59,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
       stopLoss: formData.stopLoss ? parseFloat(formData.stopLoss) : null,
       amount: parseFloat(formData.amount) || 0,
       fees: parseFloat(formData.fees) || 0,
+      fundingFees: parseFloat(formData.fundingFees) || 0,
       date: formData.date,
       notes: initialNotes,
       confidence: formData.confidence
@@ -70,6 +72,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
       stopLoss: '',
       amount: '',
       fees: '0',
+      fundingFees: '0',
       notes: '',
       date: getNowISO()
     });
@@ -202,7 +205,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Opening Fees</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Entry Trading Fee</label>
               <input
                 type="number"
                 step="any"
@@ -212,6 +215,18 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
                 placeholder="0.00"
               />
             </div>
+          </div>
+          
+          <div>
+            <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Initial Funding Fee</label>
+            <input
+              type="number"
+              step="any"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
+              value={formData.fundingFees}
+              onChange={(e) => setFormData({ ...formData, fundingFees: e.target.value })}
+              placeholder="0.00"
+            />
           </div>
         </div>
 

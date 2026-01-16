@@ -6,8 +6,8 @@ import TradeActionModal from './TradeActionModal';
 interface TradeTableProps {
   trades: Trade[];
   onDelete: (id: string) => void;
-  onCloseTrade: (id: string, exitPrice: number, exitFees: number, notes?: string) => void;
-  onAddToPosition: (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number) => void;
+  onCloseTrade: (id: string, exitPrice: number, exitFees: number, notes?: string, fundingFees?: number) => void;
+  onAddToPosition: (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number, fundingFees?: number) => void;
   onEditTrade: (id: string, updatedData: any) => void;
   onAddNote: (id: string, text: string) => void;
   onUpdateNote: (tradeId: string, noteId: string, text: string) => void;
@@ -30,9 +30,9 @@ const TradeTable: React.FC<TradeTableProps> = ({
     if (!modalState) return;
 
     if (modalState.type === 'EXIT') {
-      onCloseTrade(modalState.trade.id, data.price, data.fees, data.notes);
+      onCloseTrade(modalState.trade.id, data.price, data.fees, data.notes, data.fundingFees);
     } else if (modalState.type === 'ADD') {
-      onAddToPosition(modalState.trade.id, data.amount, data.price, data.fees, data.leverage);
+      onAddToPosition(modalState.trade.id, data.amount, data.price, data.fees, data.leverage, data.fundingFees);
     } else if (modalState.type === 'EDIT') {
       onEditTrade(modalState.trade.id, data);
     } else if (modalState.type === 'LOG') {
@@ -89,7 +89,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
               <th className="px-4 py-4">Asset</th>
               <th className="px-4 py-4">Conv.</th>
               <th className="px-4 py-4">Entry / Exit</th>
-              <th className="px-4 py-4">Fees</th>
+              <th className="px-4 py-4">Total Fees</th>
               <th className="px-4 py-4 text-right">Risk</th>
               <th className="px-4 py-4 text-right">PnL</th>
               <th className="px-4 py-4 text-center">Actions</th>
@@ -107,6 +107,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
               const pnlVal = Number(trade.pnl) || 0;
               const pnlPctVal = Number(trade.pnlPercentage) || 0;
               const feesVal = Number(trade.fees) || 0;
+              const fundingVal = Number(trade.fundingFees) || 0;
               const balanceVal = Number(walletBalance) || 1;
 
               const walletRiskPct = balanceVal > 0
@@ -162,9 +163,12 @@ const TradeTable: React.FC<TradeTableProps> = ({
                     </td>
                     <td className="px-4 py-4 align-top">
                       <div className="text-xs font-black text-slate-300 whitespace-nowrap">
-                        {feesVal > 0 ? `-$${feesVal.toFixed(2)}` : '$0.00'}
+                        -${(feesVal + fundingVal).toFixed(2)}
                       </div>
-                      <div className="text-[8px] text-slate-500 uppercase font-black">{trade.amount} Qty</div>
+                      <div className="flex flex-col gap-0.5 mt-1">
+                        <span className="text-[7px] text-slate-500 uppercase font-black">Trade: ${feesVal.toFixed(2)}</span>
+                        <span className="text-[7px] text-amber-500/80 uppercase font-black">Fund: ${fundingVal.toFixed(2)}</span>
+                      </div>
                     </td>
                     <td className="px-4 py-4 text-right align-top">
                       <div className={`font-black text-xs ${!trade.stopLoss ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>

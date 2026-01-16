@@ -32,6 +32,7 @@ export interface Trade {
   stopLoss: number | null;
   amount: number;
   fees: number;
+  fundingFees: number;
   date: string;
   notes: NoteEntry[];
   pnl: number;
@@ -44,6 +45,7 @@ export interface Wallet {
   id: string;
   name: string;
   initialBalance: number;
+  balanceAdjustment: number; // Dla depozytów/wypłat/korekt
 }
 
 export interface TradingStats {
@@ -54,7 +56,9 @@ export interface TradingStats {
   winRate: number;
   totalPnl: number;
   totalPnlPercentage: number;
-  totalTradeReturn: number; // Sum of individual trade %
+  totalTradeReturn: number;
+  totalTradingFees: number;
+  totalFundingFees: number;
   bestTrade: number;
   worstTrade: number;
 }
