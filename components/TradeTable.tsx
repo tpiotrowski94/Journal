@@ -119,6 +119,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
               <tr className="bg-slate-900/40 text-slate-500 text-[9px] font-black uppercase tracking-widest border-b border-slate-700">
                 <th className="px-6 py-4">Execution / Side</th>
                 <th className="px-6 py-4">Pair & Config</th>
+                <th className="px-6 py-4">Conf.</th>
                 <th className="px-6 py-4">Price (USDT)</th>
                 <th className="px-6 py-4">Costs</th>
                 <th className="px-6 py-4 text-right">Risk/SL</th>
@@ -129,7 +130,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
             <tbody className="divide-y divide-slate-700/50">
               {trades.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-600 text-[10px] font-black uppercase tracking-[0.4em] italic opacity-30">
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-600 text-[10px] font-black uppercase tracking-[0.4em] italic opacity-30">
                     No records in this section
                   </td>
                 </tr>
@@ -160,6 +161,16 @@ const TradeTable: React.FC<TradeTableProps> = ({
                         <div className="flex items-center gap-1.5 mt-1">
                           <span className="text-[10px] text-blue-500 font-black uppercase">{trade.leverage}x</span>
                           <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[8px] font-black text-slate-500 uppercase border border-slate-700">{trade.marginMode}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 align-top">
+                        <div className="flex gap-1 mb-1">
+                          {[1, 2, 3, 4, 5].map(i => (
+                            <div key={i} className={`w-2 h-1 rounded-full ${i <= conf ? (conf <= 2 ? 'bg-rose-500' : conf === 3 ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-700'}`} />
+                          ))}
+                        </div>
+                        <div className={`text-[8px] font-black uppercase tracking-tighter ${conf <= 2 ? 'text-rose-500' : conf === 3 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                          {confidenceLabels[conf - 1]}
                         </div>
                       </td>
                       <td className="px-6 py-5 align-top">
@@ -238,7 +249,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
                     
                     {/* Notes Row */}
                     <tr className={`${idx % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/20'}`}>
-                      <td colSpan={7} className="px-6 pb-5 pt-2">
+                      <td colSpan={8} className="px-6 pb-5 pt-2">
                          <div className="ml-6 space-y-2 relative border-l-2 border-slate-700/50 pl-6 py-1">
                             {sortedNotes.length > 0 ? sortedNotes.map((note) => (
                               <div key={note.id} className="relative group/note flex flex-col gap-0.5 mb-2">
