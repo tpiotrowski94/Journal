@@ -91,7 +91,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
         />
       )}
 
-      {/* Wyraźny Nagłówek Sekcji */}
+      {/* Header */}
       <div className="flex items-center justify-between px-2">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-2xl flex items-center justify-center border shadow-lg ${colorStyles.border} ${colorStyles.bg}`}>
@@ -121,7 +121,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 <th className="px-6 py-4">Pair & Config</th>
                 <th className="px-6 py-4">Conf.</th>
                 <th className="px-6 py-4">Price (USDT)</th>
-                <th className="px-6 py-4">Costs</th>
+                <th className="px-6 py-4">Accrued Costs</th>
                 <th className="px-6 py-4 text-right">Risk/SL</th>
                 <th className="px-6 py-4 text-right">Result</th>
                 <th className="px-6 py-4 text-center">Actions</th>
@@ -140,7 +140,6 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 const pnlPctVal = Number(trade.pnlPercentage) || 0;
                 const feesVal = Number(trade.fees) || 0;
                 const fundingVal = Number(trade.fundingFees) || 0;
-                const balanceVal = Number(walletBalance) || 1;
                 const conf = trade.confidence || 3;
 
                 const sortedNotes = Array.isArray(trade.notes) 
@@ -193,10 +192,13 @@ const TradeTable: React.FC<TradeTableProps> = ({
                         <div className="text-[11px] font-black text-slate-400">
                           ${(feesVal + fundingVal).toFixed(2)}
                         </div>
-                        <div className="mt-1 space-y-0.5 opacity-60">
-                          <div className="text-[7px] text-slate-500 uppercase font-black">Fee: ${feesVal.toFixed(2)}</div>
-                          <div className={`text-[7px] uppercase font-black ${fundingVal >= 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                            Fund: {fundingVal >= 0 ? '+' : ''}{fundingVal.toFixed(2)}
+                        <div className="mt-1 space-y-0.5">
+                          <div className="text-[7px] text-slate-500 uppercase font-black opacity-60">Fee: ${feesVal.toFixed(2)}</div>
+                          <div className={`text-[7px] uppercase font-black flex items-center gap-1 ${fundingVal > 0 ? 'text-amber-500' : fundingVal < 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
+                            Fund: {fundingVal > 0 ? '+' : ''}{fundingVal.toFixed(2)} 
+                            <span className="text-[6px] opacity-60">
+                              {fundingVal > 0 ? '(Cost)' : fundingVal < 0 ? '(Credit)' : ''}
+                            </span>
                           </div>
                         </div>
                       </td>

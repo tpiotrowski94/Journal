@@ -7,6 +7,7 @@ import Dashboard from './components/Dashboard';
 import Charts from './components/Charts';
 import PnLCalendar from './components/PnLCalendar';
 import RiskCalculator from './components/RiskCalculator';
+import DcaCalculator from './components/DcaCalculator';
 import WalletSwitcher from './components/WalletSwitcher';
 import { analyzeTrades } from './services/geminiService';
 import { dataService } from './services/dataService';
@@ -387,6 +388,7 @@ const App: React.FC = () => {
           <div className="lg:col-span-3 xl:col-span-3 space-y-6">
             <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
             <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
+            <DcaCalculator />
             <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative overflow-hidden group">
                <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
                <div className="flex justify-between items-center mb-4 relative z-10">

@@ -87,6 +87,8 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
   const isLog = type === 'LOG' || type === 'EDIT_NOTE';
   const isClosed = trade.status === TradeStatus.CLOSED;
 
+  const currentFundingInput = parseFloat(fundingFees) || 0;
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className={`bg-slate-800 border border-slate-700 w-full ${isEdit ? 'max-w-md' : 'max-w-sm'} rounded-3xl p-6 shadow-2xl shadow-black/50 overflow-y-auto max-h-[90vh]`}>
@@ -270,7 +272,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">
-                    Nowy Trade Fee
+                    Nowy Prowizja (Fee)
                   </label>
                   <input
                     type="number"
@@ -282,22 +284,25 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-black text-amber-500 mb-1 uppercase tracking-widest">
-                    Nowy Funding Fee
+                  <label className={`block text-[9px] font-black mb-1 uppercase tracking-widest ${currentFundingInput > 0 ? 'text-amber-500' : currentFundingInput < 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
+                    Nowy Funding
                   </label>
                   <input
                     type="number"
                     step="any"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-amber-500 font-bold outline-none"
+                    className={`w-full bg-slate-900 border rounded-xl p-3 font-bold outline-none transition-all ${currentFundingInput > 0 ? 'border-amber-500/40 text-amber-500' : currentFundingInput < 0 ? 'border-emerald-500/40 text-emerald-500' : 'border-slate-700 text-slate-400'}`}
                     value={fundingFees}
                     onChange={(e) => setFundingFees(e.target.value)}
                     placeholder="0.00"
                   />
                 </div>
               </div>
-              <p className="text-[8px] text-slate-500 italic px-1">
-                * Wpisz dodatnią wartość fundingu, jeśli był to koszt. Wpisz ujemną (np. -10), jeśli giełda wypłaciła Ci rabat.
-              </p>
+              <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-700/50">
+                <p className="text-[7px] text-slate-500 font-black uppercase leading-tight">
+                  <span className="text-amber-500">+ (Dodatni)</span>: Zapłacony koszt (zmniejsza PnL)<br/>
+                  <span className="text-emerald-500">- (Ujemny)</span>: Otrzymany bonus (zwiększa PnL)
+                </p>
+              </div>
             </>
           )}
 
@@ -305,13 +310,13 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
             <button
               type="submit"
               className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg ${
-                isExit ? 'bg-blue-600 hover:bg-blue-500 text-white' : 
-                isAdd ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 
+                isExit ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20' : 
+                isAdd ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20' : 
                 isLog ? 'bg-emerald-600 hover:bg-emerald-500 text-white' :
-                'bg-amber-600 hover:bg-amber-500 text-white'
+                'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
               }`}
             >
-              Potwierdź
+              Zatwierdź Operację
             </button>
           </div>
         </form>
