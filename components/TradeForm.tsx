@@ -10,8 +10,8 @@ interface TradeFormProps {
 const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
   const getNowISO = () => {
     const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    return now.toISOString().slice(0, 19);
+    const tzOffset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - tzOffset).toISOString().slice(0, 19);
   };
 
   const [formData, setFormData] = useState({
@@ -30,6 +30,11 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     confidence: 3
   });
 
+  // Czyści ciągi znaków typu "2,728.0" na "2728.0"
+  const cleanNumericInput = (val: string) => {
+    return val.replace(/,/g, '').replace(/\s/g, '');
+  };
+
   useEffect(() => {
     onFormUpdate({
       entry: parseFloat(formData.entryPrice) || 0,
@@ -37,15 +42,19 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     });
   }, [formData.entryPrice, formData.stopLoss]);
 
+  const refreshDate = () => {
+    setFormData(prev => ({ ...prev, date: getNowISO() }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.symbol || !formData.entryPrice || !formData.amount) return;
 
     const isActuallyOpen = formData.exitPrice.trim() === '';
+    const now = getNowISO();
     
-    // Create initial note if provided
     const initialNotes: NoteEntry[] = formData.notes.trim() 
-      ? [{ id: crypto.randomUUID(), text: formData.notes, date: getNowISO() }]
+      ? [{ id: crypto.randomUUID(), text: formData.notes, date: now }]
       : [];
 
     onAddTrade({
@@ -74,7 +83,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
       fees: '0',
       fundingFees: '0',
       notes: '',
-      date: getNowISO()
+      date: getNowISO() // Automatycznie odśwież datę dla kolejnego trejdu
     });
   };
 
@@ -122,7 +131,16 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Execution Date</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest">Execution Date</label>
+                <button 
+                  type="button" 
+                  onClick={refreshDate}
+                  className="text-[8px] font-black text-emerald-500 hover:text-emerald-400 uppercase tracking-tighter transition-colors"
+                >
+                  <i className="fas fa-sync-alt mr-1"></i> Now
+                </button>
+              </div>
               <input
                 type="datetime-local"
                 step="1"
@@ -171,22 +189,21 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
             <div>
               <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Entry Price</label>
               <input
-                type="number"
-                step="any"
+                type="text"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
                 value={formData.entryPrice}
-                onChange={(e) => setFormData({ ...formData, entryPrice: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, entryPrice: cleanNumericInput(e.target.value) })}
+                placeholder="0.00"
                 required
               />
             </div>
             <div>
               <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Amount (Units)</label>
               <input
-                type="number"
-                step="any"
+                type="text"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
                 value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, amount: cleanNumericInput(e.target.value) })}
                 placeholder="0.00"
                 required
               />
@@ -244,22 +261,20 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
           <div>
             <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-rose-400">Stop Loss</label>
             <input
-              type="number"
-              step="any"
+              type="text"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-rose-500 outline-none font-bold text-xs"
               value={formData.stopLoss}
-              onChange={(e) => setFormData({ ...formData, stopLoss: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, stopLoss: cleanNumericInput(e.target.value) })}
               placeholder="SL"
             />
           </div>
           <div>
             <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-blue-400">Exit (History)</label>
             <input
-              type="number"
-              step="any"
+              type="text"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-blue-400 outline-none font-bold text-xs"
               value={formData.exitPrice}
-              onChange={(e) => setFormData({ ...formData, exitPrice: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, exitPrice: cleanNumericInput(e.target.value) })}
               placeholder="Exit"
             />
           </div>

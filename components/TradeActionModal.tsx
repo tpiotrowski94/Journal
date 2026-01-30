@@ -32,6 +32,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
     fundingFees: (trade.fundingFees || 0).toString(),
   });
 
+  const cleanNumericInput = (val: string) => {
+    return val.replace(/,/g, '').replace(/\s/g, '');
+  };
+
   useEffect(() => {
     if (type === 'EDIT') {
       setEditData({
@@ -136,11 +140,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest text-emerald-400">Avg Entry Price</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-emerald-400 font-bold outline-none"
                     value={editData.entryPrice}
-                    onChange={(e) => setEditData({ ...editData, entryPrice: e.target.value })}
+                    onChange={(e) => setEditData({ ...editData, entryPrice: cleanNumericInput(e.target.value) })}
                     required
                   />
                 </div>
@@ -150,11 +153,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 <div>
                   <label className="block text-[9px] font-black text-blue-400 mb-1 uppercase tracking-widest">Cena Wyjścia</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-blue-400 font-bold outline-none ring-1 ring-blue-500/30 focus:ring-blue-500"
                     value={editData.exitPrice}
-                    onChange={(e) => setEditData({ ...editData, exitPrice: e.target.value })}
+                    onChange={(e) => setEditData({ ...editData, exitPrice: cleanNumericInput(e.target.value) })}
                     required={isClosed}
                   />
                 </div>
@@ -199,11 +201,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Ilość (Units)</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
                     value={editData.amount}
-                    onChange={(e) => setEditData({ ...editData, amount: e.target.value })}
+                    onChange={(e) => setEditData({ ...editData, amount: cleanNumericInput(e.target.value) })}
                     required
                   />
                 </div>
@@ -241,12 +242,11 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                   {isExit ? 'Cena Wykonania (USDT)' : 'Cena Nowej Partii'}
                 </label>
                 <input
-                  type="number"
-                  step="any"
+                  type="text"
                   autoFocus
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:ring-2 focus:ring-blue-500"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => setPrice(cleanNumericInput(e.target.value))}
                   placeholder="0.00"
                   required
                 />
@@ -258,11 +258,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                     Dodatkowa Ilość (Units)
                   </label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    onChange={(e) => setAmount(cleanNumericInput(e.target.value))}
                     placeholder="0.00"
                     required
                   />
