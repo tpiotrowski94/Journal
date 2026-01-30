@@ -30,6 +30,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
     amount: trade.amount.toString(),
     fees: trade.fees.toString(),
     fundingFees: (trade.fundingFees || 0).toString(),
+    confidence: trade.confidence || 3
   });
 
   const cleanNumericInput = (val: string) => {
@@ -49,6 +50,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
         amount: trade.amount.toString(),
         fees: trade.fees.toString(),
         fundingFees: (trade.fundingFees || 0).toString(),
+        confidence: trade.confidence || 3
       });
     } else if (type === 'EDIT_NOTE' && extra?.note) {
       setLogText(extra.note.text);
@@ -79,6 +81,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
         amount: parseFloat(editData.amount),
         fees: parseFloat(editData.fees) || 0,
         fundingFees: parseFloat(editData.fundingFees) || 0,
+        confidence: editData.confidence
       });
     } else if (type === 'LOG' || type === 'EDIT_NOTE') {
       if (logText.trim()) onConfirm({ text: logText.trim() });
@@ -92,6 +95,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
   const isClosed = trade.status === TradeStatus.CLOSED;
 
   const currentFundingInput = parseFloat(fundingFees) || 0;
+  const confidenceLabels = ["Gambling", "Speculation", "Neutral", "Solid Setup", "Strong Signal"];
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -120,7 +124,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none font-medium text-xs h-40 resize-none focus:ring-2 focus:ring-emerald-500/50 shadow-inner"
                 value={logText}
                 onChange={(e) => setLogText(e.target.value)}
-                placeholder="Napisz co się zmieniło (np. TP1 osiągnięte, dywergencja na 4H...)"
+                placeholder="Napisz co się zmieniło..."
                 required
               ></textarea>
             </div>
@@ -149,19 +153,27 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 </div>
               </div>
 
-              {isClosed && (
-                <div>
-                  <label className="block text-[9px] font-black text-blue-400 mb-1 uppercase tracking-widest">Cena Wyjścia</label>
-                  <input
-                    type="text"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-blue-400 font-bold outline-none ring-1 ring-blue-500/30 focus:ring-blue-500"
-                    value={editData.exitPrice}
-                    onChange={(e) => setEditData({ ...editData, exitPrice: cleanNumericInput(e.target.value) })}
-                    required={isClosed}
-                  />
+              <div>
+                <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest flex justify-between">
+                  <span>Confidence Level</span>
+                  <span className="text-emerald-500 font-black">{confidenceLabels[editData.confidence - 1]}</span>
+                </label>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setEditData({ ...editData, confidence: level })}
+                      className={`flex-1 h-2 rounded-full transition-all ${
+                        editData.confidence >= level 
+                          ? (editData.confidence <= 2 ? 'bg-rose-500' : editData.confidence === 3 ? 'bg-amber-500' : 'bg-emerald-500')
+                          : 'bg-slate-700'
+                      }`}
+                    />
+                  ))}
                 </div>
-              )}
-              
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Typ</label>
@@ -199,7 +211,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Ilość (Units)</label>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Total Amount (Units)</label>
                   <input
                     type="text"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none"
@@ -212,7 +224,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Trade Fees (Łącznie)</label>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Total Fees Paid</label>
                   <input
                     type="number"
                     step="any"
@@ -223,7 +235,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-black text-amber-500 mb-1 uppercase tracking-widest">Funding Fees (Łącznie)</label>
+                  <label className="block text-[9px] font-black text-amber-500 mb-1 uppercase tracking-widest">Total Funding Paid</label>
                   <input
                     type="number"
                     step="any"
@@ -271,7 +283,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">
-                    Nowy Prowizja (Fee)
+                    Prowizja (TYLKO dla tej partii)
                   </label>
                   <input
                     type="number"
@@ -284,7 +296,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 </div>
                 <div>
                   <label className={`block text-[9px] font-black mb-1 uppercase tracking-widest ${currentFundingInput > 0 ? 'text-amber-500' : currentFundingInput < 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
-                    Nowy Funding
+                    Funding (TYLKO dla tej partii)
                   </label>
                   <input
                     type="number"
@@ -298,8 +310,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
               </div>
               <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-700/50">
                 <p className="text-[7px] text-slate-500 font-black uppercase leading-tight">
-                  <span className="text-amber-500">+ (Dodatni)</span>: Zapłacony koszt (zmniejsza PnL)<br/>
-                  <span className="text-emerald-500">- (Ujemny)</span>: Otrzymany bonus (zwiększa PnL)
+                  <i className="fas fa-info-circle mr-1 text-blue-400"></i> Wpisane koszty zostaną <b>dodane</b> do aktualnej sumy kosztów tej pozycji.
                 </p>
               </div>
             </>
