@@ -26,13 +26,14 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
     setIsEditingInitial(false);
   };
 
-  const totalCosts = stats.totalTradingFees + stats.totalFundingFees;
+  const totalCosts = (Number(stats.totalTradingFees) || 0) + (Number(stats.totalFundingFees) || 0);
+  const isNetProfitFromOps = totalCosts < 0;
 
   const cards = [
     { 
       label: 'Portfolio Equity', 
       value: `$${stats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
-      sub: `Initial: $${stats.initialBalance.toFixed(0)}`,
+      sub: `Initial: $${stats.initialBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
       color: 'text-white', 
       icon: 'fa-vault',
       bg: 'bg-slate-800',
@@ -55,12 +56,12 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
       bg: 'bg-slate-800/50'
     },
     { 
-      label: 'Operational Costs', 
-      value: `-$${totalCosts.toFixed(2)}`, 
-      sub: `Fund: ${stats.totalFundingFees >= 0 ? '+' : ''}${stats.totalFundingFees.toFixed(1)} | Trade: ${stats.totalTradingFees.toFixed(1)}`,
-      color: totalCosts > 0 ? 'text-amber-500' : 'text-emerald-400', 
-      icon: 'fa-money-bill-transfer',
-      bg: 'bg-amber-500/5'
+      label: isNetProfitFromOps ? 'Net Op. Rebates' : 'Operational Costs', 
+      value: `${isNetProfitFromOps ? '+$' : '-$'}${Math.abs(totalCosts).toFixed(2)}`, 
+      sub: `Fund: ${stats.totalFundingFees > 0 ? '+' : ''}${stats.totalFundingFees.toFixed(1)} | Trade: ${stats.totalTradingFees.toFixed(1)}`,
+      color: isNetProfitFromOps ? 'text-emerald-400' : 'text-amber-500', 
+      icon: isNetProfitFromOps ? 'fa-hand-holding-dollar' : 'fa-money-bill-transfer',
+      bg: isNetProfitFromOps ? 'bg-emerald-500/5' : 'bg-amber-500/5'
     },
     { 
       label: 'Performance', 

@@ -435,7 +435,7 @@ const App: React.FC = () => {
               icon="fa-history"
             />
             <PnLCalendar trades={trades} />
-            <Charts trades={trades} />
+            <Charts trades={trades} initialBalance={stats.initialBalance} />
           </div>
         </div>
       </main>
