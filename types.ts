@@ -29,6 +29,7 @@ export interface Trade {
   leverage: number;
   entryPrice: number;
   exitPrice: number | null;
+  exitDate?: string | null;
   stopLoss: number | null;
   amount: number;
   fees: number;
@@ -39,13 +40,15 @@ export interface Trade {
   pnlPercentage: number;
   confidence: number;
   initialRisk: number | null;
+  exitFees?: number;
+  exitFundingFees?: number;
 }
 
 export interface Wallet {
   id: string;
   name: string;
   initialBalance: number;
-  balanceAdjustment: number; // Dla depozytów/wypłat/korekt
+  balanceAdjustment: number;
 }
 
 export interface TradingStats {

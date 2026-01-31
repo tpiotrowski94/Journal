@@ -171,18 +171,36 @@ const App: React.FC = () => {
     setTrades([trade, ...trades]);
   };
 
-  const handleCloseTrade = (id: string, exitPrice: number, exitFees: number, updatedNotes?: string, exitFundingFees: number = 0) => {
+  const handleCloseTrade = (id: string, exitPrice: number, exitFees: number, updatedNotes?: string, exitFundingFees: number = 0, customExitDate?: string, isTotalFees: boolean = false) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
-        const totalTradingFees = (Number(t.fees) || 0) + (Number(exitFees) || 0);
-        const totalFundingFees = (Number(t.fundingFees) || 0) + (Number(exitFundingFees) || 0);
+        // Jeśli isTotalFees jest true, nadpisujemy całą sumę. Jeśli false, doliczamy do istniejącej.
+        const finalFees = isTotalFees ? Number(exitFees) : (Number(t.fees) || 0) + (Number(exitFees) || 0);
+        const finalFunding = isTotalFees ? Number(exitFundingFees) : (Number(t.fundingFees) || 0) + (Number(exitFundingFees) || 0);
+        
         const newNotes = [...t.notes];
         if (updatedNotes?.trim()) {
            newNotes.push({ id: crypto.randomUUID(), text: `EXIT: ${updatedNotes}`, date: new Date().toISOString() });
         }
-        const updated = { ...t, exitPrice: Number(exitPrice), fees: totalTradingFees, fundingFees: totalFundingFees, status: TradeStatus.CLOSED, notes: newNotes };
+        
+        const updated: Trade = { 
+          ...t, 
+          exitPrice: Number(exitPrice), 
+          fees: finalFees, 
+          fundingFees: finalFunding, 
+          exitFees: isTotalFees ? undefined : Number(exitFees),
+          exitFundingFees: isTotalFees ? undefined : Number(exitFundingFees),
+          exitDate: customExitDate || new Date().toISOString(),
+          status: TradeStatus.CLOSED, 
+          notes: newNotes 
+        };
+        
         const { pnl, pnlPercentage } = calculatePnl(updated);
-        return { ...updated, pnl: isFinite(pnl) ? pnl : 0, pnlPercentage: isFinite(pnlPercentage) ? pnlPercentage : 0 };
+        return { 
+          ...updated, 
+          pnl: isFinite(pnl) ? pnl : 0, 
+          pnlPercentage: isFinite(pnlPercentage) ? pnlPercentage : 0 
+        };
       }
       return t;
     }));

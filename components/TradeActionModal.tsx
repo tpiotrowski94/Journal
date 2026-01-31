@@ -11,6 +11,12 @@ interface TradeActionModalProps {
 }
 
 const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra, onClose, onConfirm }) => {
+  const getNowISO = () => {
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - tzOffset).toISOString().slice(0, 19);
+  };
+
   const [price, setPrice] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [leverage, setLeverage] = useState<number>(trade.leverage);
@@ -18,6 +24,10 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
   const [fundingFees, setFundingFees] = useState<string>('0');
   const [logText, setLogText] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [exitDate, setExitDate] = useState<string>(getNowISO());
+  
+  // Nowy stan dla trybu wprowadzania kosztów przy wyjściu
+  const [isTotalMode, setIsTotalMode] = useState(false);
 
   const [editData, setEditData] = useState({
     symbol: trade.symbol,
@@ -64,7 +74,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
       const p = parseFloat(price);
       const f = parseFloat(fees) || 0;
       const ff = parseFloat(fundingFees) || 0;
-      if (!isNaN(p)) onConfirm({ price: p, fees: f, fundingFees: ff, notes });
+      if (!isNaN(p)) onConfirm({ price: p, fees: f, fundingFees: ff, notes, exitDate, isTotalFees: isTotalMode });
     } else if (type === 'ADD') {
       const p = parseFloat(price);
       const a = parseFloat(amount);
@@ -92,7 +102,6 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
   const isAdd = type === 'ADD';
   const isExit = type === 'EXIT';
   const isLog = type === 'LOG' || type === 'EDIT_NOTE';
-  const isClosed = trade.status === TradeStatus.CLOSED;
 
   const currentFundingInput = parseFloat(fundingFees) || 0;
   const confidenceLabels = ["Gambling", "Speculation", "Neutral", "Solid Setup", "Strong Signal"];
@@ -224,7 +233,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Total Fees Paid</label>
+                  <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Global Fees (Paid)</label>
                   <input
                     type="number"
                     step="any"
@@ -235,7 +244,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-black text-amber-500 mb-1 uppercase tracking-widest">Total Funding Paid</label>
+                  <label className="block text-[9px] font-black text-amber-500 mb-1 uppercase tracking-widest">Global Funding (Paid)</label>
                   <input
                     type="number"
                     step="any"
@@ -249,9 +258,39 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
             </>
           ) : (
             <>
+              {isExit && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Faktyczna Data Zamknięcia</label>
+                    <input
+                      type="datetime-local"
+                      step="1"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-[10px] uppercase"
+                      value={exitDate}
+                      onChange={(e) => setExitDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                  
+                  {/* Przełącznik metody kosztów */}
+                  <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
+                    <button 
+                      type="button"
+                      onClick={() => setIsTotalMode(false)}
+                      className={`flex-1 py-2 text-[9px] font-black rounded-lg transition-all ${!isTotalMode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}
+                    >DOLICZ Prowizję Wyjścia</button>
+                    <button 
+                      type="button"
+                      onClick={() => setIsTotalMode(true)}
+                      className={`flex-1 py-2 text-[9px] font-black rounded-lg transition-all ${isTotalMode ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500'}`}
+                    >WPISZ Sumę Całkowitą</button>
+                  </div>
+                </div>
+              )}
+              
               <div>
                 <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">
-                  {isExit ? 'Cena Wykonania (USDT)' : 'Cena Nowej Partii'}
+                  {isExit ? 'Cena Wykonania Zamknięcia' : 'Cena Nowej Partii'}
                 </label>
                 <input
                   type="text"
@@ -283,7 +322,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">
-                    Prowizja (TYLKO dla tej partii)
+                    {isExit ? (isTotalMode ? 'CAŁKOWITE Fees' : 'FEE Wyjścia') : 'FEE Dokupu'}
                   </label>
                   <input
                     type="number"
@@ -296,7 +335,7 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                 </div>
                 <div>
                   <label className={`block text-[9px] font-black mb-1 uppercase tracking-widest ${currentFundingInput > 0 ? 'text-amber-500' : currentFundingInput < 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
-                    Funding (TYLKO dla tej partii)
+                    {isExit ? (isTotalMode ? 'CAŁKOWITY Fund' : 'FND Wyjścia') : 'FND Dokupu'}
                   </label>
                   <input
                     type="number"
@@ -308,9 +347,15 @@ const TradeActionModal: React.FC<TradeActionModalProps> = ({ trade, type, extra,
                   />
                 </div>
               </div>
-              <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-700/50">
-                <p className="text-[7px] text-slate-500 font-black uppercase leading-tight">
-                  <i className="fas fa-info-circle mr-1 text-blue-400"></i> Wpisane koszty zostaną <b>dodane</b> do aktualnej sumy kosztów tej pozycji.
+              
+              <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-700/50">
+                <p className="text-[7px] text-slate-500 font-black uppercase leading-tight flex items-start gap-2">
+                  <i className={`fas ${isTotalMode ? 'fa-info-circle text-blue-400' : 'fa-exclamation-triangle text-amber-500'} mt-0.5`}></i>
+                  <span>
+                    {isTotalMode 
+                      ? "Wpisana kwota zastąpi całkowicie dotychczasowe koszty. PnL zostanie przeliczony na podstawie tej nowej sumy."
+                      : `Wpisane wartości zostaną dodane do aktualnej sumy kosztów tej pozycji (${(trade.fees + trade.fundingFees).toFixed(2)} USD).`}
+                  </span>
                 </p>
               </div>
             </>

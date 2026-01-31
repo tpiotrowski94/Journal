@@ -9,21 +9,25 @@ interface ChartsProps {
 }
 
 const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
-  // Sortujemy zamknięte pozycje chronologicznie
+  // Sortujemy po dacie wyjścia, bo to ona decyduje o momencie wpłynięcia PnL do portfela
   const closedTrades = trades
     .filter(t => t.status === 'CLOSED')
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => {
+      const dateA = new Date(a.exitDate || a.date).getTime();
+      const dateB = new Date(b.exitDate || b.date).getTime();
+      return dateA - dateB;
+    });
 
-  // Budujemy dane zaczynając od depozytu początkowego
   const cumulativeData = [];
   
-  // Punkt zero: Stan przed pierwszą transakcją
+  // Punkt startowy (przed pierwszym trejdem)
   if (closedTrades.length > 0) {
-    const firstTradeDate = new Date(closedTrades[0].date);
-    const startPointDate = new Date(firstTradeDate.getTime() - 1000 * 60 * 60); // 1h wcześniej
+    const firstTradeTime = new Date(closedTrades[0].exitDate || closedTrades[0].date);
+    const startPointDate = new Date(firstTradeTime.getTime() - 1000 * 60 * 60); // 1h wcześniej
     cumulativeData.push({
       timestamp: startPointDate.getTime(),
       label: 'START',
+      dateShort: startPointDate.toLocaleDateString([], { day: '2-digit', month: '2-digit' }),
       equity: initialBalance
     });
   }
@@ -31,10 +35,11 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
   let runningEquity = initialBalance;
   closedTrades.forEach((trade) => {
     runningEquity += (Number(trade.pnl) || 0);
-    const date = new Date(trade.date);
+    const date = new Date(trade.exitDate || trade.date);
     cumulativeData.push({
       timestamp: date.getTime(),
       label: `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+      dateShort: date.toLocaleDateString([], { day: '2-digit', month: '2-digit' }),
       equity: parseFloat(runningEquity.toFixed(2))
     });
   });
@@ -46,7 +51,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
           <i className="fas fa-chart-line text-blue-400"></i> Equity Evolution
         </h2>
         <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-900 px-3 py-1 rounded-full border border-slate-700">
-          Global Portfolio Performance
+          Historyczny Balans Portfela
         </div>
       </div>
       
@@ -62,12 +67,14 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.5} />
               <XAxis 
-                dataKey="label" 
+                dataKey="dateShort" 
                 stroke="#64748b" 
-                fontSize={9} 
+                fontSize={10} 
                 tickLine={false} 
                 axisLine={false}
-                hide={true}
+                padding={{ left: 10, right: 10 }}
+                interval="preserveStart"
+                minTickGap={30}
               />
               <YAxis 
                 stroke="#64748b" 
@@ -81,7 +88,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
                 contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)' }}
                 itemStyle={{ color: '#3b82f6', fontWeight: '900', fontSize: '14px' }}
                 labelStyle={{ color: '#64748b', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}
-                formatter={(value: number) => [`$${value.toLocaleString()}`, 'Equity']}
+                formatter={(value: number) => [`$${value.toLocaleString()}`, 'Kapitał']}
               />
               <Area 
                 type="monotone" 

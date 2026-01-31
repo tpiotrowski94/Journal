@@ -8,7 +8,7 @@ interface TradeTableProps {
   trades: Trade[];
   status: TradeStatus;
   onDelete: (id: string) => void;
-  onCloseTrade: (id: string, exitPrice: number, exitFees: number, notes?: string, fundingFees?: number) => void;
+  onCloseTrade: (id: string, exitPrice: number, exitFees: number, notes?: string, fundingFees?: number, exitDate?: string, isTotalFees?: boolean) => void;
   onAddToPosition: (id: string, additionalAmount: number, additionalPrice: number, additionalFees: number, newLeverage?: number, fundingFees?: number) => void;
   onEditTrade: (id: string, updatedData: any) => void;
   onAddNote: (id: string, text: string) => void;
@@ -30,11 +30,23 @@ const TradeTable: React.FC<TradeTableProps> = ({
     extra?: { note?: NoteEntry }
   } | null>(null);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const isHistory = status === TradeStatus.CLOSED;
+
   const handleModalConfirm = (data: any) => {
     if (!modalState) return;
 
     if (modalState.type === 'EXIT') {
-      onCloseTrade(modalState.trade.id, data.price, data.fees, data.notes, data.fundingFees);
+      onCloseTrade(
+        modalState.trade.id, 
+        data.price, 
+        data.fees, 
+        data.notes, 
+        data.fundingFees, 
+        data.exitDate, 
+        data.isTotalFees
+      );
     } else if (modalState.type === 'ADD') {
       onAddToPosition(modalState.trade.id, data.amount, data.price, data.fees, data.leverage, data.fundingFees);
     } else if (modalState.type === 'EDIT') {
@@ -47,7 +59,8 @@ const TradeTable: React.FC<TradeTableProps> = ({
     setModalState(null);
   };
 
-  const formatTradeDate = (dateStr: string) => {
+  const formatTradeDate = (dateStr?: string | null) => {
+    if (!dateStr) return '-';
     try {
       const d = new Date(dateStr);
       return d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
@@ -80,6 +93,10 @@ const TradeTable: React.FC<TradeTableProps> = ({
   }[accentColor];
 
   const isOpenTable = status === TradeStatus.OPEN;
+  const totalPages = Math.ceil(trades.length / pageSize);
+  const displayedTrades = isHistory 
+    ? trades.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    : trades;
 
   return (
     <div className="space-y-4">
@@ -102,7 +119,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
           <div>
             <h2 className="text-lg font-black text-white uppercase italic tracking-tighter leading-none">{title}</h2>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Records:</span>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Total:</span>
               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${colorStyles.badge}`}>{trades.length}</span>
             </div>
           </div>
@@ -114,27 +131,27 @@ const TradeTable: React.FC<TradeTableProps> = ({
         )}
       </div>
 
-      <div className="bg-[#1e293b] rounded-3xl border border-slate-700 overflow-hidden shadow-2xl">
+      <div className="bg-[#1e293b] rounded-3xl border border-slate-700 overflow-hidden shadow-2xl flex flex-col">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left table-auto">
             <thead>
               <tr className="bg-slate-900/40 text-slate-500 text-[9px] font-black uppercase tracking-widest border-b border-slate-700">
                 <th className="px-6 py-4">Market / Side</th>
                 <th className="px-6 py-4">Position Exposure</th>
-                <th className="px-6 py-4">Execution Prices</th>
+                <th className="px-6 py-4">Execution / Costs</th>
                 <th className="px-6 py-4">Operational Costs</th>
                 <th className="px-6 py-4 text-right">{isOpenTable ? 'Stop Loss / Risk' : 'Outcome & PnL'}</th>
                 <th className="px-6 py-4 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
-              {trades.length === 0 ? (
+              {displayedTrades.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-slate-600 text-[10px] font-black uppercase tracking-[0.4em] italic opacity-30">
-                    No records in this section
+                    No records found
                   </td>
                 </tr>
-              ) : trades.map((trade, idx) => {
+              ) : displayedTrades.map((trade, idx) => {
                 const entryVal = Number(trade.entryPrice) || 0;
                 const amountVal = Number(trade.amount) || 0;
                 const leverageVal = Number(trade.leverage) || 1;
@@ -146,7 +163,12 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 const pnlPctVal = Number(trade.pnlPercentage) || 0;
                 const feesVal = Number(trade.fees) || 0;
                 const fundingVal = Number(trade.fundingFees) || 0;
+                const totalCosts = feesVal + fundingVal;
                 const conf = trade.confidence || 3;
+
+                // Koszty przy wyjściu (jeśli były doliczane jako incremental)
+                const exitFeesVal = Number(trade.exitFees) || 0;
+                const exitFundingVal = Number(trade.exitFundingFees) || 0;
 
                 const sortedNotes = Array.isArray(trade.notes) 
                   ? [...trade.notes].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -167,7 +189,6 @@ const TradeTable: React.FC<TradeTableProps> = ({
                           <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[8px] font-black text-slate-500 uppercase border border-slate-700">{trade.marginMode}</span>
                         </div>
                         
-                        {/* Confidence Indicator in first column */}
                         <div className="mt-3 flex items-center gap-2">
                           <div className="flex gap-0.5">
                             {[1, 2, 3, 4, 5].map(i => (
@@ -197,29 +218,41 @@ const TradeTable: React.FC<TradeTableProps> = ({
                       <td className="px-6 py-5 align-top">
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2">
-                             <span className="text-[7px] w-8 text-slate-600 font-black uppercase">Avg In</span>
+                             <span className="text-[7px] w-12 text-slate-600 font-black uppercase">Avg Entry</span>
                              <span className="font-mono text-[11px] text-slate-200 font-bold">${entryVal.toLocaleString()}</span>
                           </div>
                           {!isOpenTable && (
-                            <div className="flex items-center gap-2">
-                               <span className="text-[7px] w-8 text-slate-600 font-black uppercase">Exit</span>
-                               <span className="font-mono text-[11px] text-blue-400 font-bold">${Number(trade.exitPrice).toLocaleString()}</span>
-                            </div>
+                            <>
+                              <div className="flex items-center gap-2">
+                                 <span className="text-[7px] w-12 text-blue-500 font-black uppercase">Exit Price</span>
+                                 <span className="font-mono text-[11px] text-blue-400 font-bold">${Number(trade.exitPrice).toLocaleString()}</span>
+                              </div>
+                              {exitFeesVal > 0 || exitFundingVal !== 0 ? (
+                                <div className="text-[7px] font-black uppercase text-amber-500/70 italic mt-1 bg-amber-500/5 px-1.5 py-0.5 rounded border border-amber-500/10 w-fit">
+                                   Incremental Exit: ${(exitFeesVal + exitFundingVal).toFixed(2)}
+                                </div>
+                              ) : (
+                                <div className="text-[7px] font-black uppercase text-slate-600 italic mt-1 px-1.5 py-0.5 rounded border border-slate-700/50 w-fit">
+                                   Total Settle Costs: ${totalCosts.toFixed(2)}
+                                </div>
+                              )}
+                            </>
                           )}
-                          <div className="text-[8px] text-slate-500 font-bold uppercase mt-1 opacity-60">
-                             {formatTradeDate(trade.date)}
+                          <div className="text-[8px] text-slate-500 font-bold uppercase mt-2 opacity-60 flex flex-col">
+                             <span className="text-[6px] tracking-widest text-slate-600">Entry: {formatTradeDate(trade.date)}</span>
+                             {!isOpenTable && <span className="text-[6px] tracking-widest text-blue-500/60 mt-0.5">Exit: {formatTradeDate(trade.exitDate)}</span>}
                           </div>
                         </div>
                       </td>
 
                       <td className="px-6 py-5 align-top">
-                        <div className="text-[11px] font-black text-slate-400">
-                          ${(feesVal + fundingVal).toFixed(2)}
+                        <div className={`text-[11px] font-black ${totalCosts > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {totalCosts > 0 ? '-' : '+'}${Math.abs(totalCosts).toFixed(2)}
                         </div>
                         <div className="mt-1 space-y-0.5">
-                          <div className="text-[7px] text-slate-500 uppercase font-black opacity-60">Fees: ${feesVal.toFixed(2)}</div>
+                          <div className="text-[7px] text-slate-500 uppercase font-black opacity-60">Trading: ${feesVal.toFixed(2)}</div>
                           <div className={`text-[7px] uppercase font-black flex items-center gap-1 ${fundingVal > 0 ? 'text-amber-500' : fundingVal < 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
-                            Fund: {fundingVal > 0 ? '+' : ''}{fundingVal.toFixed(2)} 
+                            Funding: {fundingVal > 0 ? '+' : ''}{fundingVal.toFixed(2)} 
                           </div>
                         </div>
                       </td>
@@ -302,6 +335,46 @@ const TradeTable: React.FC<TradeTableProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {isHistory && totalPages > 1 && (
+          <div className="bg-slate-900/60 border-t border-slate-700 px-6 py-4 flex items-center justify-between">
+            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+              Showing <span className="text-slate-300">{(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, trades.length)}</span> of <span className="text-slate-300">{trades.length}</span>
+            </div>
+            <div className="flex gap-1">
+              <button 
+                onClick={() => { setCurrentPage(p => Math.max(1, p - 1)); }}
+                disabled={currentPage === 1}
+                className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:text-slate-400 transition-all flex items-center justify-center"
+              >
+                <i className="fas fa-chevron-left text-[10px]"></i>
+              </button>
+              
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => { setCurrentPage(page); }}
+                  className={`w-8 h-8 rounded-lg text-[10px] font-black uppercase transition-all ${
+                    currentPage === page 
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 border-blue-500' 
+                      : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+
+              <button 
+                onClick={() => { setCurrentPage(p => Math.min(totalPages, p + 1)); }}
+                disabled={currentPage === totalPages}
+                className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:text-slate-400 transition-all flex items-center justify-center"
+              >
+                <i className="fas fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
