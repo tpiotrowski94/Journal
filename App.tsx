@@ -9,6 +9,7 @@ import PnLCalendar from './components/PnLCalendar';
 import RiskCalculator from './components/RiskCalculator';
 import DcaCalculator from './components/DcaCalculator';
 import WalletSwitcher from './components/WalletSwitcher';
+import TradingMantra from './components/TradingMantra'; 
 import { analyzeTrades } from './services/geminiService';
 import { dataService } from './services/dataService';
 
@@ -28,6 +29,7 @@ const App: React.FC = () => {
     lastBackup: localStorage.getItem('last_backup_date')
   });
 
+  // Załadowanie portfeli przy starcie
   useEffect(() => {
     const loadedWallets = dataService.loadWallets();
     const savedActiveId = dataService.getActiveWalletId();
@@ -40,7 +42,18 @@ const App: React.FC = () => {
         setActiveWalletId(loadedWallets[0].id);
       }
     } else {
-      const defaultWallet: Wallet = { id: crypto.randomUUID(), name: 'Main Portfolio', initialBalance: 1000, balanceAdjustment: 0 };
+      const defaultWallet: Wallet = { 
+        id: crypto.randomUUID(), 
+        name: 'Main Portfolio', 
+        initialBalance: 1000, 
+        balanceAdjustment: 0,
+        mantra: "Gram cierpliwie, czekając na płynność i potwierdzenia. Ten portfel służy do systematycznego budowania kapitału.",
+        pillars: [
+          { title: "Zawsze SL", description: "Brak stop lossa = brak portfela", icon: "fa-check-double", color: "emerald" },
+          { title: "Weekend Warning", description: "Niska dźwignia w soboty i niedziele", icon: "fa-calendar-minus", color: "amber" },
+          { title: "A+ Only", description: "Tylko wybrane, czyste setupy", icon: "fa-brain", color: "blue" }
+        ]
+      };
       const initialWallets = [defaultWallet];
       setWallets(initialWallets);
       dataService.saveWallets(initialWallets);
@@ -70,7 +83,7 @@ const App: React.FC = () => {
   }, [wallets]);
 
   const activeWallet = useMemo(() => 
-    wallets.find(w => w.id === activeWalletId) || wallets[0]
+    wallets.find(w => w.id === activeWalletId)
   , [wallets, activeWalletId]);
 
   const calculatePnl = (trade: Partial<Trade>) => {
@@ -158,6 +171,11 @@ const App: React.FC = () => {
     setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, initialBalance: newInitial } : w));
   };
 
+  const handleUpdateWalletRules = (updatedWalletData: Partial<Wallet>) => {
+    if (!activeWalletId) return;
+    setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, ...updatedWalletData } : w));
+  };
+
   const handleAddTrade = (newTradeData: Omit<Trade, 'id' | 'pnl' | 'pnlPercentage' | 'initialRisk'>) => {
     const initialRisk = calculateInitialRisk(newTradeData as any);
     const { pnl, pnlPercentage } = calculatePnl(newTradeData as any);
@@ -174,7 +192,6 @@ const App: React.FC = () => {
   const handleCloseTrade = (id: string, exitPrice: number, exitFees: number, updatedNotes?: string, exitFundingFees: number = 0, customExitDate?: string, isTotalFees: boolean = false) => {
     setTrades(prev => prev.map(t => {
       if (t.id === id) {
-        // Jeśli isTotalFees jest true, nadpisujemy całą sumę. Jeśli false, doliczamy do istniejącej.
         const finalFees = isTotalFees ? Number(exitFees) : (Number(t.fees) || 0) + (Number(exitFees) || 0);
         const finalFunding = isTotalFees ? Number(exitFundingFees) : (Number(t.fundingFees) || 0) + (Number(exitFundingFees) || 0);
         
@@ -389,7 +406,7 @@ const App: React.FC = () => {
         </div>
       </nav>
       <main className="max-w-[1800px] mx-auto px-4 mt-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <WalletSwitcher wallets={wallets} activeWalletId={activeWalletId} onSelect={setActiveWalletId} onAdd={handleAddWallet} onDelete={handleDeleteWallet} />
           {appState.lastBackup && (
             <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700">
@@ -397,65 +414,81 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-        <Dashboard 
-          stats={stats} 
-          onAdjustBalance={handleAdjustCurrentBalance} 
-          onUpdateInitialBalance={handleUpdateInitialBalance} 
-        />
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-3 xl:col-span-3 space-y-6">
-            <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
-            <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
-            <DcaCalculator />
-            <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative overflow-hidden group">
-               <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
-               <div className="flex justify-between items-center mb-4 relative z-10">
-                <h2 className="text-lg font-black text-white uppercase italic tracking-tight"><i className="fas fa-brain text-purple-400 mr-2"></i> Trading AI</h2>
-                <button onClick={handleAiAnalysis} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
-                  {isAnalyzing ? '...' : 'Analizuj'}
-                </button>
+
+        {activeWallet ? (
+          <>
+            <TradingMantra 
+              activeWallet={activeWallet} 
+              onUpdateWallet={handleUpdateWalletRules} 
+            />
+
+            <Dashboard 
+              stats={stats} 
+              onAdjustBalance={handleAdjustCurrentBalance} 
+              onUpdateInitialBalance={handleUpdateInitialBalance} 
+            />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-3 xl:col-span-3 space-y-6">
+                <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
+                <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
+                <DcaCalculator />
+                <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative overflow-hidden group">
+                   <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
+                   <div className="flex justify-between items-center mb-4 relative z-10">
+                    <h2 className="text-lg font-black text-white uppercase italic tracking-tight"><i className="fas fa-brain text-purple-400 mr-2"></i> Trading AI</h2>
+                    <button onClick={handleAiAnalysis} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
+                      {isAnalyzing ? '...' : 'Analizuj'}
+                    </button>
+                  </div>
+                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">
+                    {aiAnalysis || "Kliknij 'Analizuj', aby otrzymać feedback psychologiczny od AI na podstawie Twojej aktywności."}
+                  </div>
+                </div>
               </div>
-              <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">
-                {aiAnalysis || "Kliknij 'Analizuj', aby otrzymać feedback psychologiczny od AI na podstawie Twojej aktywności."}
+              <div className="lg:col-span-9 xl:col-span-9 space-y-12">
+                <TradeTable 
+                  title="Active Positions" 
+                  trades={openTrades} 
+                  status={TradeStatus.OPEN}
+                  onDelete={handleDeleteTrade} 
+                  onCloseTrade={handleCloseTrade} 
+                  onAddToPosition={handleAddToPosition} 
+                  onEditTrade={handleEditTrade} 
+                  onAddNote={handleAddNote} 
+                  onUpdateNote={handleUpdateNote} 
+                  onDeleteNote={handleDeleteNote} 
+                  walletBalance={stats.currentBalance} 
+                  accentColor="emerald"
+                  icon="fa-fire-alt"
+                />
+                <TradeTable 
+                  title="Trade History" 
+                  trades={closedTrades} 
+                  status={TradeStatus.CLOSED}
+                  onDelete={handleDeleteTrade} 
+                  onCloseTrade={handleCloseTrade} 
+                  onAddToPosition={handleAddToPosition} 
+                  onEditTrade={handleEditTrade} 
+                  onAddNote={handleAddNote} 
+                  onUpdateNote={handleUpdateNote} 
+                  onDeleteNote={handleDeleteNote} 
+                  walletBalance={stats.currentBalance} 
+                  onExport={handleExport}
+                  accentColor="blue"
+                  icon="fa-history"
+                />
+                <PnLCalendar trades={trades} />
+                <Charts trades={trades} initialBalance={stats.initialBalance} />
               </div>
             </div>
+          </>
+        ) : (
+          <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
+             <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Inicjalizacja Portfela...</p>
           </div>
-          <div className="lg:col-span-9 xl:col-span-9 space-y-12">
-            <TradeTable 
-              title="Active Positions" 
-              trades={openTrades} 
-              status={TradeStatus.OPEN}
-              onDelete={handleDeleteTrade} 
-              onCloseTrade={handleCloseTrade} 
-              onAddToPosition={handleAddToPosition} 
-              onEditTrade={handleEditTrade} 
-              onAddNote={handleAddNote} 
-              onUpdateNote={handleUpdateNote} 
-              onDeleteNote={handleDeleteNote} 
-              walletBalance={stats.currentBalance} 
-              accentColor="emerald"
-              icon="fa-fire-alt"
-            />
-            <TradeTable 
-              title="Trade History" 
-              trades={closedTrades} 
-              status={TradeStatus.CLOSED}
-              onDelete={handleDeleteTrade} 
-              onCloseTrade={handleCloseTrade} 
-              onAddToPosition={handleAddToPosition} 
-              onEditTrade={handleEditTrade} 
-              onAddNote={handleAddNote} 
-              onUpdateNote={handleUpdateNote} 
-              onDeleteNote={handleDeleteNote} 
-              walletBalance={stats.currentBalance} 
-              onExport={handleExport}
-              accentColor="blue"
-              icon="fa-history"
-            />
-            <PnLCalendar trades={trades} />
-            <Charts trades={trades} initialBalance={stats.initialBalance} />
-          </div>
-        </div>
+        )}
       </main>
     </div>
   );

@@ -44,11 +44,22 @@ export interface Trade {
   exitFundingFees?: number;
 }
 
+export interface TradingPillar {
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+}
+
 export interface Wallet {
   id: string;
   name: string;
   initialBalance: number;
   balanceAdjustment: number;
+  mantra?: string;
+  pillars?: TradingPillar[];
+  showMantra?: boolean;
+  showPillars?: boolean;
 }
 
 export interface TradingStats {
