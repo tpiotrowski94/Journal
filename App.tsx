@@ -14,13 +14,12 @@ import { analyzeTrades } from './services/geminiService';
 import { syncHyperliquidData } from './services/syncService';
 import { dataService } from './services/dataService';
 
-// Define AIStudio interface to satisfy TypeScript and match global type definition
-interface AIStudio {
-  hasSelectedApiKey: () => Promise<boolean>;
-  openSelectKey: () => Promise<void>;
-}
-
 declare global {
+  // Define AIStudio interface to avoid collision with existing global type
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
   interface Window {
     aistudio?: AIStudio;
   }
@@ -44,7 +43,6 @@ const App: React.FC = () => {
     lastBackup: localStorage.getItem('last_backup_date')
   });
 
-  // Check API Key on mount for AI features only
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio) {
@@ -75,14 +73,13 @@ const App: React.FC = () => {
         setHasApiKey(false);
         if (window.aistudio) await window.aistudio.openSelectKey();
       } else {
-        setAiAnalysis("Error generating AI analysis. Check billing.");
+        setAiAnalysis("AI Analysis failed. Please check your project billing status.");
       }
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Load data on start
   useEffect(() => {
     const loadedWallets = dataService.loadWallets();
     const savedActiveId = dataService.getActiveWalletId();
@@ -102,8 +99,8 @@ const App: React.FC = () => {
         initialBalance: 1000, 
         balanceAdjustment: 0,
         autoSync: false,
-        mantra: "Patience is the key to profit.",
-        pillars: [{ title: "Stop Loss", description: "Always have a defined exit", icon: "fa-shield-halved", color: "emerald" }]
+        mantra: "Discipline equals freedom.",
+        pillars: [{ title: "Risk Management", description: "Never risk more than 1% per trade", icon: "fa-shield-halved", color: "emerald" }]
       };
       setWallets([defaultWallet]);
       dataService.saveWallets([defaultWallet]);
@@ -147,20 +144,30 @@ const App: React.FC = () => {
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(activeWallet.address);
       
-      // Update Equity if address is linked
       if (accountValue > 0) {
-        handleAdjustCurrentBalance(accountValue);
+        const closedTrades = trades.filter(t => t.status === TradeStatus.CLOSED);
+        const totalPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+        const newAdjustment = accountValue - (activeWallet.initialBalance + totalPnl);
+        setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, balanceAdjustment: newAdjustment } : w));
       }
 
+      // 1. Check externalId (prevent duplicate sync of the same trade event)
+      // 2. For OPEN positions, check symbol (only one open position per symbol in UI)
       const existingIds = new Set(trades.map(t => t.externalId).filter(Boolean));
-      const newItems = syncedTrades.filter(st => st.externalId && !existingIds.has(st.externalId));
+      const existingOpenSymbols = new Set(trades.filter(t => t.status === TradeStatus.OPEN).map(t => t.symbol));
+
+      const newItems = syncedTrades.filter(st => {
+        if (st.externalId && existingIds.has(st.externalId)) return false;
+        if (st.status === TradeStatus.OPEN && existingOpenSymbols.has(st.symbol || '')) return false;
+        return true;
+      });
 
       if (newItems.length > 0) {
         const imported: Trade[] = newItems.map(pt => {
           const base: Partial<Trade> = {
             ...pt,
             id: crypto.randomUUID(),
-            notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid`, date: new Date().toISOString() }],
+            notes: [{ id: crypto.randomUUID(), text: `Sync: ${pt.status === TradeStatus.OPEN ? 'Active Position' : 'Closed Trade (Last 24h)'}`, date: new Date().toISOString() }],
             confidence: 3,
             marginMode: pt.marginMode || MarginMode.ISOLATED,
           };
@@ -168,14 +175,14 @@ const App: React.FC = () => {
           return { ...base, pnl, pnlPercentage, initialRisk: (base.entryPrice! * base.amount!) / (base.leverage || 1) } as Trade;
         });
         setTrades(prev => [...imported, ...prev]);
-        if (!isAuto) alert(`Sync complete. Imported ${imported.length} trades. Balance updated to $${accountValue.toFixed(2)}`);
+        if (!isAuto) alert(`Sync success! Imported ${imported.length} new records. Equity updated to $${accountValue.toFixed(2)}`);
       } else if (!isAuto) {
-        alert(`Already up to date. Balance updated to $${accountValue.toFixed(2)}`);
+        alert(`No new updates found. Live Equity: $${accountValue.toFixed(2)}`);
       }
       setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, lastSyncAt: new Date().toISOString() } : w));
     } catch (err: any) {
       console.error(err);
-      if (!isAuto) alert(`Sync failed: ${err.message}`);
+      if (!isAuto) alert(`Sync failed. Please check network and wallet address.`);
     } finally {
       if (!isAuto) setIsSyncing(false);
     }
@@ -192,19 +199,20 @@ const App: React.FC = () => {
 
   const stats = useMemo<TradingStats>(() => {
     const closed = trades.filter(t => t.status === TradeStatus.CLOSED);
-    const totalPnl = closed.reduce((sum, t) => sum + t.pnl, 0);
+    const totalPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
     const initial = Number(activeWallet?.initialBalance) || 0;
+    const current = initial + totalPnl + (activeWallet?.balanceAdjustment || 0);
     return {
       initialBalance: initial,
-      currentBalance: initial + totalPnl + (activeWallet?.balanceAdjustment || 0),
+      currentBalance: isFinite(current) ? current : initial,
       totalTrades: trades.length,
       openTrades: trades.filter(t => t.status === TradeStatus.OPEN).length,
       winRate: closed.length > 0 ? (closed.filter(t => t.pnl > 0).length / closed.length) * 100 : 0,
       totalPnl,
       totalPnlPercentage: initial !== 0 ? (totalPnl / initial) * 100 : 0,
-      totalTradeReturn: closed.reduce((sum, t) => sum + t.pnlPercentage, 0),
-      totalTradingFees: closed.reduce((sum, t) => sum + t.fees, 0),
-      totalFundingFees: closed.reduce((sum, t) => sum + t.fundingFees, 0),
+      totalTradeReturn: closed.reduce((sum, t) => sum + (t.pnlPercentage || 0), 0),
+      totalTradingFees: closed.reduce((sum, t) => sum + (t.fees || 0), 0),
+      totalFundingFees: closed.reduce((sum, t) => sum + (t.fundingFees || 0), 0),
       bestTrade: closed.length > 0 ? Math.max(...closed.map(t => t.pnl)) : 0,
       worstTrade: closed.length > 0 ? Math.min(...closed.map(t => t.pnl)) : 0
     };
@@ -212,9 +220,9 @@ const App: React.FC = () => {
 
   const handleAdjustCurrentBalance = (newRealBalance: number) => {
     if (!activeWallet) return;
-    const totalPnl = trades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + t.pnl, 0);
+    const totalPnl = trades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
     const newAdjustment = newRealBalance - (activeWallet.initialBalance + totalPnl);
-    handleUpdateWallet({ ...activeWallet, balanceAdjustment: newAdjustment });
+    setWallets(prev => prev.map(w => w.id === activeWallet.id ? { ...w, balanceAdjustment: newAdjustment } : w));
   };
 
   const handleUpdateWallet = (w: Wallet) => setWallets(prev => prev.map(old => old.id === w.id ? w : old));
@@ -232,16 +240,16 @@ const App: React.FC = () => {
             {activeWallet?.address && (
               <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-xl border border-slate-700">
                 <div className="flex flex-col items-end">
-                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">HL Live Sync</span>
+                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">HL Connector</span>
                    <span className="text-[9px] font-mono text-blue-400">{activeWallet.address.slice(0, 6)}...{activeWallet.address.slice(-4)}</span>
                 </div>
-                <button onClick={() => handleSyncWallet(false)} disabled={isSyncing} className={`w-8 h-8 rounded-lg flex items-center justify-center ${isSyncing ? 'animate-spin bg-blue-600/20 text-blue-400' : 'bg-slate-700 text-slate-300'}`}>
+                <button onClick={() => handleSyncWallet(false)} disabled={isSyncing} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isSyncing ? 'animate-spin bg-blue-600/20 text-blue-400' : 'bg-slate-700 text-slate-300 hover:text-white'}`}>
                   <i className="fas fa-sync"></i>
                 </button>
               </div>
             )}
             <button onClick={() => setIsSettingsOpen(true)} className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 transition-all">
-              <i className="fas fa-database text-sm"></i>
+              <i className="fas fa-database text-sm text-slate-400"></i>
             </button>
           </div>
         </div>
@@ -253,7 +261,7 @@ const App: React.FC = () => {
               const w: Wallet = { id: crypto.randomUUID(), name, provider: SyncProvider.MANUAL, initialBalance: 1000, balanceAdjustment: 0, autoSync: false };
               setWallets([...wallets, w]); setActiveWalletId(w.id);
             }
-          }} onDelete={(id) => { if(confirm("Delete?")) { setWallets(wallets.filter(w=>w.id!==id)); if(activeWalletId===id) setActiveWalletId(wallets[0].id); } }} onUpdateWallet={handleUpdateWallet} />
+          }} onDelete={(id) => { if(confirm("Delete wallet and all related trades?")) { setWallets(wallets.filter(w=>w.id!==id)); if(activeWalletId===id) setActiveWalletId(wallets[0]?.id || ''); } }} onUpdateWallet={handleUpdateWallet} />
         </div>
 
         {activeWallet ? (
@@ -268,14 +276,15 @@ const App: React.FC = () => {
                 }} onFormUpdate={setFormValues} />
                 <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
                 <DcaCalculator />
-                <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative group">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative group overflow-hidden">
+                  <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
+                  <div className="flex justify-between items-center mb-4 relative z-10">
                     <h2 className="text-lg font-black text-white uppercase italic"><i className="fas fa-brain text-purple-400 mr-2"></i> Trading AI</h2>
-                    <button onClick={handlePerformAiAnalysis} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all">
+                    <button onClick={handlePerformAiAnalysis} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
                       {isAnalyzing ? '...' : 'Analyze'}
                     </button>
                   </div>
-                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px]">{aiAnalysis || "Insights will appear here."}</div>
+                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">{aiAnalysis || "Get psychological insights and risk management advice based on your trades."}</div>
                 </div>
               </div>
               <div className="lg:col-span-9 space-y-12">
@@ -299,27 +308,27 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Loading Portfolio...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Loading Portfolio Engine...</p>
           </div>
         )}
       </main>
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl text-center">
-            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">Backup Center</h3>
+            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">Backup & Storage</h3>
             <div className="space-y-4">
               <button onClick={() => {
                 const blob = new Blob([JSON.stringify(dataService.exportFullBackup(), null, 2)], { type: "application/json" });
-                const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `backup.json`; link.click();
-              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase">Export JSON</button>
+                const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `crypto_backup_${new Date().toISOString().slice(0,10)}.json`; link.click();
+              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase">Export Full JSON</button>
               <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase">Import JSON</button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
                  const file = e.target.files?.[0]; if (!file) return;
                  const reader = new FileReader(); reader.onload = (event) => {
-                   try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Invalid file"); }
+                   try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Invalid backup file."); }
                  }; reader.readAsText(file);
               }} />
-              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4">Close</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Close</button>
             </div>
           </div>
         </div>
