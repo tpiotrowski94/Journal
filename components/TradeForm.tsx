@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Trade, TradeType, TradeStatus, MarginMode, NoteEntry } from '../types';
-import { parseOnChainTransaction } from '../services/geminiService';
 
 interface TradeFormProps {
   onAddTrade: (trade: Omit<Trade, 'id' | 'pnl' | 'pnlPercentage' | 'initialRisk'>) => void;
@@ -31,9 +30,6 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     confidence: 3
   });
 
-  const [txId, setTxId] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
-
   const cleanNumericInput = (val: string) => {
     return val.replace(/,/g, '').replace(/\s/g, '');
   };
@@ -47,27 +43,6 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
 
   const refreshDate = () => {
     setFormData(prev => ({ ...prev, date: getNowISO() }));
-  };
-
-  const handleAiScan = async () => {
-    if (!txId.trim()) return;
-    setIsScanning(true);
-    const parsed = await parseOnChainTransaction(txId);
-    if (parsed) {
-      setFormData(prev => ({
-        ...prev,
-        symbol: parsed.symbol || prev.symbol,
-        type: (parsed.type as TradeType) || prev.type,
-        entryPrice: parsed.entryPrice?.toString() || prev.entryPrice,
-        amount: parsed.amount?.toString() || prev.amount,
-        fees: parsed.fees?.toString() || prev.fees,
-        fundingFees: parsed.fundingFees?.toString() || prev.fundingFees,
-        leverage: parsed.leverage || prev.leverage,
-        notes: `Auto-Sync: ${txId.slice(0, 10)}...`
-      }));
-    }
-    setIsScanning(false);
-    setTxId('');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -118,32 +93,8 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
     <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-black text-white flex items-center gap-2 uppercase italic tracking-tighter leading-none">
-          <i className="fas fa-plus-circle text-blue-500"></i> Nowa Pozycja
+          <i className="fas fa-plus-circle text-blue-500"></i> New Position
         </h2>
-      </div>
-
-      <div className="mb-6 p-3 bg-slate-900/50 border border-slate-700 rounded-2xl">
-        <label className="block text-[8px] font-black text-slate-500 mb-2 uppercase tracking-widest flex items-center gap-2">
-          <i className="fas fa-magic text-blue-400"></i> Szybki Import AI
-        </label>
-        <div className="flex gap-2">
-          <input 
-            type="text"
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-[10px] outline-none focus:border-blue-500 transition-all font-mono"
-            placeholder="Wklej TX ID lub opis trejdu..."
-            value={txId}
-            onChange={(e) => setTxId(e.target.value)}
-          />
-          <button 
-            type="button"
-            onClick={handleAiScan}
-            disabled={isScanning || !txId.trim()}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-2"
-          >
-            {isScanning ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-bolt"></i>}
-            Importuj
-          </button>
-        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -183,7 +134,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
             </div>
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest">Data</label>
+                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest">Date</label>
                 <button type="button" onClick={refreshDate} className="text-[8px] font-black text-blue-500 hover:text-blue-400 uppercase tracking-tighter">
                    Now
                 </button>
@@ -201,7 +152,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Kierunek</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Side</label>
               <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
                 <button 
                   type="button"
@@ -234,7 +185,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Cena Wejścia</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Entry Price</label>
               <input
                 type="text"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
@@ -245,7 +196,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Ilość (Size)</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Amount (Units)</label>
               <input
                 type="text"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-sm"
@@ -269,7 +220,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
               />
             </div>
             <div>
-              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Opłaty</label>
+              <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Fees</label>
               <input
                 type="number"
                 step="any"
@@ -282,11 +233,12 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
         </div>
 
         <div>
-          <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Notatki / Setup</label>
+          <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Setup Notes</label>
           <textarea
             className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-medium text-xs h-16 resize-none"
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            placeholder="Describe your reasoning..."
           ></textarea>
         </div>
 
@@ -301,7 +253,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
             />
           </div>
           <div>
-            <label className="block text-[9px] font-black text-blue-400 mb-1 uppercase tracking-widest">Cena Wyjścia</label>
+            <label className="block text-[9px] font-black text-blue-400 mb-1 uppercase tracking-widest">Exit Price (History)</label>
             <input
               type="text"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-blue-400 outline-none font-bold text-xs"
@@ -315,7 +267,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ onAddTrade, onFormUpdate }) => {
           type="submit"
           className={`w-full ${isPositionOpen ? 'bg-blue-600' : 'bg-emerald-600'} text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase tracking-[0.2em] text-xs hover:brightness-110`}
         >
-          {isPositionOpen ? 'Otwórz Pozycję' : 'Zapisz Historyczny'}
+          {isPositionOpen ? 'Open Position' : 'Log Historical Trade'}
         </button>
       </form>
     </div>

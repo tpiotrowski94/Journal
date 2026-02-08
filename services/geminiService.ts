@@ -2,12 +2,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Trade, TradeType, TradeStatus, MarginMode } from "../types";
 
-// Always create a new instance with the latest API key from process.env.API_KEY
-// to ensure usage of the most up-to-date configuration.
 const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeTrades = async (trades: Trade[]): Promise<string> => {
-  if (trades.length === 0) return "Dodaj transakcje, aby uzyskać analizę AI!";
+  if (trades.length === 0) return "Add some trades to get AI insights!";
 
   const tradesSummary = trades.map(t => ({
     symbol: t.symbol,
@@ -21,19 +19,16 @@ export const analyzeTrades = async (trades: Trade[]): Promise<string> => {
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Przeanalizuj moje wyniki tradingu na Hyperliquid/Bullpen.
-      Dane transakcji: ${JSON.stringify(tradesSummary.slice(0, 20))}`,
+      contents: `Analyze my trading performance. Trade data: ${JSON.stringify(tradesSummary.slice(0, 20))}`,
       config: {
-        systemInstruction: "Jesteś profesjonalnym analitykiem Hyperliquid. Mówisz po polsku. Skup się na psychologii i zarządzaniu ryzykiem.",
+        systemInstruction: "You are a world-class on-chain trading analyst. Provide psychological feedback and risk management advice based on the user's trading history. Use professional English.",
         temperature: 0.7,
       },
     });
-
-    // Access .text property directly as per latest SDK guidelines
-    return response.text || "Brak odpowiedzi AI.";
+    return response.text || "No AI response available.";
   } catch (error) {
     console.error("AI Analysis Error:", error);
-    return "Błąd podczas analizy wyników przez AI.";
+    return "Error generating AI analysis.";
   }
 };
 
@@ -42,16 +37,20 @@ export const parseBatchTransactions = async (fills: any[]): Promise<Partial<Trad
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Przekształć poniższą listę wypełnień (fills) z giełdy Hyperliquid na listę obiektów Trade.
-      Dane surowe: ${JSON.stringify(fills)}`,
+      contents: `Convert these Hyperliquid user fills into a list of consolidated Trade objects.
+      RAW FILLS DATA: ${JSON.stringify(fills)}`,
       config: {
-        systemInstruction: `Jesteś parserem Hyperliquid L1. 
-        ZASADY:
-        1. Grupuj fills o tym samym symbolu i zbliżonym czasie w JEDEN obiekt Trade.
-        2. Side 'B' to kupno, 'S' to sprzedaż. Jeśli najpierw jest 'B', to LONG. Jeśli najpierw 'S', to SHORT.
-        3. 'sz' to ilość (amount).
-        4. 'px' to cena (price).
-        5. 'fee' to prowizja.`,
+        systemInstruction: `You are a Hyperliquid L1 Transaction Parser.
+        TASK:
+        1. Analyze the list of "fills". 
+        2. Group fills of the same "coin" that occurred near the same time into logical Trade entries.
+        3. "side" 'B' means Buy, 'S' means Sell. 
+        4. If a position starts with 'B', it's a LONG. If it starts with 'S', it's a SHORT.
+        5. Calculate the average price (px) and total size (sz) for each consolidated trade.
+        6. Generate a stable 'externalId' by concatenating the symbol and the timestamp of the earliest fill in the group.
+        7. If fills show both an entry and a corresponding exit (e.g., Buy 1 BTC then Sell 1 BTC), consolidate into a CLOSED trade with an 'exitPrice'.
+        8. Assume standard leverage (use 1 if not detectable) and isolation.
+        9. Output ONLY the JSON array.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -62,9 +61,10 @@ export const parseBatchTransactions = async (fills: any[]): Promise<Partial<Trad
               symbol: { type: Type.STRING },
               type: { type: Type.STRING, enum: ["LONG", "SHORT"] },
               entryPrice: { type: Type.NUMBER },
+              exitPrice: { type: Type.NUMBER, nullable: true },
               amount: { type: Type.NUMBER },
               fees: { type: Type.NUMBER },
-              date: { type: Type.STRING },
+              date: { type: Type.STRING, description: "ISO format date of the first fill" },
               leverage: { type: Type.NUMBER }
             },
             required: ["externalId", "symbol", "type", "entryPrice", "amount", "fees", "date", "leverage"]
@@ -76,43 +76,7 @@ export const parseBatchTransactions = async (fills: any[]): Promise<Partial<Trad
     const text = response.text?.trim() || "[]";
     return JSON.parse(text);
   } catch (error) {
-    console.error("Batch AI Error:", error);
+    console.error("Batch AI Parsing Error:", error);
     return [];
-  }
-};
-
-// Added missing parseOnChainTransaction function to handle single transaction text parsing
-// and resolve the export error in components/TradeForm.tsx.
-export const parseOnChainTransaction = async (rawData: string): Promise<Partial<Trade> | null> => {
-  try {
-    const ai = getAI();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Przetwórz surowe dane transakcji z Hyperliquid i zwróć obiekt Trade. Dane: ${rawData}`,
-      config: {
-        systemInstruction: "Jesteś parserem Hyperliquid L1. Wyodrębnij szczegóły transakcji i zwróć je w formacie JSON.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            symbol: { type: Type.STRING },
-            type: { type: Type.STRING, enum: ["LONG", "SHORT"] },
-            entryPrice: { type: Type.NUMBER },
-            amount: { type: Type.NUMBER },
-            fees: { type: Type.NUMBER },
-            fundingFees: { type: Type.NUMBER },
-            leverage: { type: Type.NUMBER },
-            date: { type: Type.STRING }
-          },
-          required: ["symbol", "type", "entryPrice", "amount", "fees", "date", "leverage"]
-        }
-      },
-    });
-
-    const text = response.text?.trim();
-    return text ? JSON.parse(text) : null;
-  } catch (error) {
-    console.error("AI Parse Error:", error);
-    return null;
   }
 };

@@ -30,7 +30,7 @@ const App: React.FC = () => {
     lastBackup: localStorage.getItem('last_backup_date')
   });
 
-  // Załadowanie danych przy starcie
+  // Load data on start
   useEffect(() => {
     const loadedWallets = dataService.loadWallets();
     const savedActiveId = dataService.getActiveWalletId();
@@ -45,14 +45,14 @@ const App: React.FC = () => {
     } else {
       const defaultWallet: Wallet = { 
         id: crypto.randomUUID(), 
-        name: 'Główny Portfel', 
+        name: 'Main Wallet', 
         provider: SyncProvider.MANUAL,
         initialBalance: 1000, 
         balanceAdjustment: 0,
         autoSync: false,
-        mantra: "Cierpliwość to klucz do zysków.",
+        mantra: "Patience is the key to profit.",
         pillars: [
-          { title: "Stop Loss", description: "Zawsze ustawiony stop loss", icon: "fa-shield-halved", color: "emerald" }
+          { title: "Stop Loss", description: "Always have a defined exit", icon: "fa-shield-halved", color: "emerald" }
         ]
       };
       setWallets([defaultWallet]);
@@ -127,10 +127,9 @@ const App: React.FC = () => {
       }
 
       if (fills && Array.isArray(fills) && fills.length > 0) {
-        // Przetwarzanie surowych fills przez AI do obiektów Trade
-        const parsedResults = await parseBatchTransactions(fills.slice(0, 30));
+        // Deep scan 100 fills for better context
+        const parsedResults = await parseBatchTransactions(fills.slice(0, 100));
         
-        // Mapowanie na pełne obiekty Trade i sprawdzanie duplikatów
         const existingExternalIds = new Set(trades.map(t => t.externalId).filter(Boolean));
         const newUniqueTrades = parsedResults.filter(pt => pt.externalId && !existingExternalIds.has(pt.externalId));
 
@@ -140,7 +139,7 @@ const App: React.FC = () => {
               ...pt,
               id: crypto.randomUUID(),
               status: pt.exitPrice ? TradeStatus.CLOSED : TradeStatus.OPEN,
-              notes: [{ id: crypto.randomUUID(), text: `Zsynchronizowano automatycznie (${activeWallet.provider})`, date: new Date().toISOString() }],
+              notes: [{ id: crypto.randomUUID(), text: `Auto-Synced from ${activeWallet.provider}`, date: new Date().toISOString() }],
               pnl: 0,
               pnlPercentage: 0,
               confidence: 3,
@@ -153,30 +152,29 @@ const App: React.FC = () => {
           });
 
           setTrades(prev => [...finalTrades, ...prev]);
-          if (!isAuto) alert(`Zaimportowano ${finalTrades.length} nowych pozycji.`);
+          if (!isAuto) alert(`Imported ${finalTrades.length} new positions.`);
         } else if (!isAuto) {
-          alert("Wszystkie pozycje są już w dzienniku.");
+          alert("Journal is already up to date.");
         }
+      } else if (!isAuto) {
+        alert("No recent fills found for this address.");
       }
       
-      // Aktualizacja czasu ostatniej synchronizacji
       setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, lastSyncAt: new Date().toISOString() } : w));
       
     } catch (err) {
       console.error("Sync error:", err);
-      if (!isAuto) alert("Błąd połączenia podczas synchronizacji portfela.");
+      if (!isAuto) alert("Sync failed. Please check the wallet address.");
     } finally {
       if (!isAuto) setIsSyncing(false);
     }
   }, [activeWallet, trades, calculatePnl, activeWalletId]);
 
-  // AUTO-SYNC EFFECT: Co 5 minut (300,000 ms)
+  // AUTO-SYNC EFFECT: Every 5 minutes
   useEffect(() => {
     let interval: any;
     if (activeWallet?.autoSync && activeWallet?.address && activeWallet.provider !== SyncProvider.MANUAL) {
-      // Synchronizacja startowa
       handleSyncWallet(true);
-      // Ustawienie interwału
       interval = setInterval(() => handleSyncWallet(true), 300000);
     }
     return () => clearInterval(interval);
@@ -250,7 +248,7 @@ const App: React.FC = () => {
   };
 
   const handleAddWallet = () => {
-    const name = prompt("Nazwa portfela:");
+    const name = prompt("Enter wallet name:");
     if (!name) return;
     const newWallet: Wallet = { 
       id: crypto.randomUUID(), 
@@ -265,8 +263,8 @@ const App: React.FC = () => {
   };
 
   const handleDeleteWallet = (id: string) => {
-    if (wallets.length <= 1) return alert("Musisz mieć przynajmniej jeden portfel.");
-    if (confirm("Czy na pewno chcesz usunąć ten portfel? Wszystkie przypisane do niego dane zostaną skasowane.")) {
+    if (wallets.length <= 1) return alert("You must have at least one wallet.");
+    if (confirm("Delete this wallet and all its data?")) {
       const newWallets = wallets.filter(w => w.id !== id);
       setWallets(newWallets);
       localStorage.removeItem(`trades_${id}`);
@@ -295,7 +293,6 @@ const App: React.FC = () => {
                 <button 
                   onClick={() => handleSyncWallet(false)} 
                   disabled={isSyncing}
-                  title="Synchronizuj teraz"
                   className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isSyncing ? 'bg-blue-600/20 text-blue-400' : 'bg-slate-700 text-slate-300 hover:text-white'}`}
                 >
                   <i className={`fas fa-sync ${isSyncing ? 'animate-spin' : ''}`}></i>
@@ -320,7 +317,7 @@ const App: React.FC = () => {
           />
           {appState.lastBackup && (
             <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700">
-              Ostatni Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
+              Last Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
             </div>
           )}
         </div>
@@ -352,17 +349,17 @@ const App: React.FC = () => {
                       setAiAnalysis(await analyzeTrades(trades));
                       setIsAnalyzing(false);
                     }} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
-                      {isAnalyzing ? '...' : 'Analizuj'}
+                      {isAnalyzing ? '...' : 'Analyze'}
                     </button>
                   </div>
                   <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">
-                    {aiAnalysis || "Analiza AI wygeneruje feedback psychologiczny na podstawie Twojej aktywności."}
+                    {aiAnalysis || "AI analysis will provide psychological feedback here."}
                   </div>
                 </div>
               </div>
               <div className="lg:col-span-9 xl:col-span-9 space-y-12">
                 <TradeTable 
-                  title="Aktywne Pozycje" 
+                  title="Active Positions" 
                   trades={openTrades} 
                   status={TradeStatus.OPEN}
                   onDelete={(id) => setTrades(prev => prev.filter(t => t.id !== id))} 
@@ -378,7 +375,7 @@ const App: React.FC = () => {
                            fundingFees: finalFunding, 
                            exitDate: date || new Date().toISOString(),
                            status: TradeStatus.CLOSED,
-                           notes: notes ? [...t.notes, { id: crypto.randomUUID(), text: `ZAMKNIĘCIE: ${notes}`, date: new Date().toISOString() }] : t.notes
+                           notes: notes ? [...t.notes, { id: crypto.randomUUID(), text: `CLOSE: ${notes}`, date: new Date().toISOString() }] : t.notes
                          };
                          const { pnl, pnlPercentage } = calculatePnl(updated);
                          return { ...updated, pnl, pnlPercentage };
@@ -412,7 +409,7 @@ const App: React.FC = () => {
                   icon="fa-fire-alt"
                 />
                 <TradeTable 
-                  title="Historia Zagrań" 
+                  title="Trade History" 
                   trades={closedTrades} 
                   status={TradeStatus.CLOSED}
                   onDelete={(id) => setTrades(prev => prev.filter(t => t.id !== id))} 
@@ -434,7 +431,7 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Ładowanie danych...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Loading...</p>
           </div>
         )}
       </main>
@@ -443,7 +440,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl">
             <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter flex items-center gap-3">
-              <i className="fas fa-database text-blue-400"></i> Zarządzanie Danymi
+              <i className="fas fa-database text-blue-400"></i> Data Management
             </h3>
             <div className="space-y-4">
               <button 
@@ -455,19 +452,16 @@ const App: React.FC = () => {
                    link.href = url;
                    link.download = `backup_${new Date().toISOString().split('T')[0]}.json`;
                    link.click();
-                   const now = new Date().toLocaleString();
-                   localStorage.setItem('last_backup_date', now);
-                   setAppState(prev => ({ ...prev, lastBackup: now }));
                 }}
-                className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3 transition-all"
+                className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3"
               >
-                <i className="fas fa-download text-blue-400"></i> Eksportuj Pełny Backup
+                Export Backup
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3 transition-all"
+                className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3"
               >
-                <i className="fas fa-upload text-emerald-400"></i> Importuj Backup
+                Import Backup
               </button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
                  const file = e.target.files?.[0];
@@ -476,15 +470,13 @@ const App: React.FC = () => {
                  reader.onload = (event) => {
                    try {
                      const json = JSON.parse(event.target?.result as string);
-                     if (confirm("UWAGA: To zastąpi wszystkie aktualne dane! Czy na pewno chcesz kontynuować?")) {
-                       dataService.importFullBackup(json);
-                       window.location.reload();
-                     }
-                   } catch (e) { alert("Błędny plik kopii zapasowej."); }
+                     dataService.importFullBackup(json);
+                     window.location.reload();
+                   } catch (e) { alert("Error reading backup file."); }
                  };
                  reader.readAsText(file);
               }} />
-              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 shadow-lg shadow-blue-600/20">Zamknij</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4">Close</button>
             </div>
           </div>
         </div>

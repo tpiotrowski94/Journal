@@ -42,7 +42,7 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
             <button 
               onClick={() => setEditingWallet(wallet)}
               className="px-3 border-l border-slate-700/50 text-slate-500 hover:text-blue-400 transition-colors"
-              title="Ustawienia Portfela"
+              title="Wallet Settings"
             >
               <i className="fas fa-cog text-[10px]"></i>
             </button>
@@ -65,20 +65,20 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
         <i className="fas fa-plus"></i>
       </button>
 
-      {/* Modal Ustawień Portfela */}
+      {/* Wallet Settings Modal */}
       {editingWallet && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-black text-white uppercase italic tracking-tighter flex items-center gap-3">
-                <i className="fas fa-sliders text-blue-400"></i> Ustawienia Portfela
+                <i className="fas fa-sliders text-blue-400"></i> Wallet Settings
               </h3>
               <button onClick={() => setEditingWallet(null)} className="text-slate-500 hover:text-white"><i className="fas fa-times"></i></button>
             </div>
             
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Nazwa Portfela</label>
+                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Wallet Name</label>
                 <input 
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:border-blue-500"
                   value={editingWallet.name}
@@ -86,7 +86,7 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
                 />
               </div>
               <div>
-                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Kapitał Początkowy ($)</label>
+                <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Initial Capital ($)</label>
                 <input 
                   type="number"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:border-blue-500"
@@ -96,14 +96,14 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
               </div>
               
               <div className="pt-4 border-t border-slate-700">
-                <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">Opcjonalna Synchronizacja</h4>
+                <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">Optional Synchronization</h4>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <button 
                       type="button"
                       onClick={() => setEditingWallet({...editingWallet, provider: SyncProvider.MANUAL, autoSync: false})}
                       className={`py-3 rounded-xl text-[9px] font-black uppercase border transition-all ${editingWallet.provider === SyncProvider.MANUAL ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-900 border-slate-800 text-slate-600'}`}
-                    >Manualny</button>
+                    >Manual</button>
                     <button 
                       type="button"
                       onClick={() => setEditingWallet({...editingWallet, provider: SyncProvider.HYPERLIQUID})}
@@ -114,10 +114,10 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
                   {editingWallet.provider !== SyncProvider.MANUAL && (
                     <div className="animate-in slide-in-from-top-2 duration-200 space-y-3">
                       <div>
-                        <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Adres Portfela (0x...)</label>
+                        <label className="block text-[9px] font-black text-slate-500 mb-1 uppercase tracking-widest">Wallet Address (0x...)</label>
                         <input 
                           className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-mono text-[10px] outline-none focus:border-blue-500"
-                          placeholder="Wklej adres do automatycznego śledzenia..."
+                          placeholder="Paste address to track..."
                           value={editingWallet.address || ''}
                           onChange={e => setEditingWallet({...editingWallet, address: e.target.value})}
                         />
@@ -130,8 +130,8 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
                           className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500"
                         />
                         <div className="flex flex-col">
-                          <span className="text-[10px] font-black text-slate-400 group-hover:text-white uppercase tracking-widest transition-colors">Włącz Auto-Sync</span>
-                          <span className="text-[8px] text-slate-600 uppercase font-bold">Sprawdzaj pozycje co 5 minut</span>
+                          <span className="text-[10px] font-black text-slate-400 group-hover:text-white uppercase tracking-widest transition-colors">Enable Auto-Sync</span>
+                          <span className="text-[8px] text-slate-600 uppercase font-bold">Check positions every 5 minutes</span>
                         </div>
                       </label>
                     </div>
@@ -140,8 +140,8 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setEditingWallet(null)} className="flex-1 py-4 bg-slate-900 text-slate-500 rounded-xl font-black uppercase text-xs">Anuluj</button>
-                <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-xs shadow-lg shadow-blue-600/20">Zapisz</button>
+                <button type="button" onClick={() => setEditingWallet(null)} className="flex-1 py-4 bg-slate-900 text-slate-500 rounded-xl font-black uppercase text-xs">Cancel</button>
+                <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-xs shadow-lg shadow-blue-600/20">Save Changes</button>
               </div>
             </form>
           </div>
