@@ -29,9 +29,10 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
   const totalCosts = (Number(stats.totalTradingFees) || 0) + (Number(stats.totalFundingFees) || 0);
   const isNetProfitFromOps = totalCosts < 0;
 
-  // Calculate Portfolio ROI independently
-  const portfolioRoi = stats.initialBalance > 0 
-    ? ((stats.currentBalance - stats.initialBalance) / stats.initialBalance) * 100 
+  // Calculate Portfolio ROI based on PnL (Trading Performance Only)
+  // This ignores deposits/withdrawals (balanceAdjustment) to show true trading skill growth.
+  const tradingPerformanceRoi = stats.initialBalance > 0 
+    ? (stats.totalPnl / stats.initialBalance) * 100 
     : 0;
 
   const cards = [
@@ -62,9 +63,9 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
     },
     { 
       label: 'Portfolio Growth', 
-      value: `${portfolioRoi >= 0 ? '+' : ''}${portfolioRoi.toFixed(2)}%`, 
-      sub: 'Account ROI (Real Growth)',
-      color: portfolioRoi >= 0 ? 'text-blue-400' : 'text-rose-400', 
+      value: `${tradingPerformanceRoi >= 0 ? '+' : ''}${tradingPerformanceRoi.toFixed(2)}%`, 
+      sub: 'Return on Initial Cap.',
+      color: tradingPerformanceRoi >= 0 ? 'text-blue-400' : 'text-rose-400', 
       icon: 'fa-chart-line',
       bg: 'bg-slate-800'
     },
