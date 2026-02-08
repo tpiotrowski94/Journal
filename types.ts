@@ -70,6 +70,7 @@ export interface Wallet {
   showPillars?: boolean;
   autoSync?: boolean;
   lastSyncAt?: string;
+  historyStartDate?: string; // New field for cutoff
 }
 
 export interface TradingStats {

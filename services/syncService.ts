@@ -6,9 +6,8 @@ export interface SyncResult {
   accountValue: number;
 }
 
-export const syncHyperliquidData = async (address: string): Promise<SyncResult> => {
-  const NOW = Date.now();
-  const YESTERDAY = NOW - 86400000;
+export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
+  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000);
 
   // 1. Fetch Clearinghouse State (Active Positions & Equity)
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
@@ -28,6 +27,7 @@ export const syncHyperliquidData = async (address: string): Promise<SyncResult> 
 
   const trades: Partial<Trade>[] = [];
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
+  const activeSymbols = new Set<string>();
 
   // Process Active Positions
   if (state?.assetPositions) {
@@ -36,9 +36,12 @@ export const syncHyperliquidData = async (address: string): Promise<SyncResult> 
       const szi = parseFloat(pos.szi);
       if (szi === 0) return;
 
+      const symbol = `${pos.coin}-PERP`;
+      activeSymbols.add(symbol);
+
       trades.push({
-        externalId: `hl-active-${pos.coin}-${address.toLowerCase()}`,
-        symbol: `${pos.coin}-PERP`,
+        externalId: `hl-active-${symbol}-${address.toLowerCase()}`,
+        symbol: symbol,
         type: szi > 0 ? TradeType.LONG : TradeType.SHORT,
         entryPrice: parseFloat(pos.entryPx),
         amount: Math.abs(szi),
@@ -52,22 +55,20 @@ export const syncHyperliquidData = async (address: string): Promise<SyncResult> 
     });
   }
 
-  // Process Historical Fills (Strictly last 24h)
+  // Process Historical Fills (Respective of cutoffDate)
   if (Array.isArray(fills)) {
-    // Filter fills ONLY from the last 24 hours
-    const recentFills = fills.filter(f => f.time >= YESTERDAY);
+    const recentFills = fills.filter(f => f.time >= cutoffTimestamp);
     
     const coinGroups: Record<string, any[]> = {};
     recentFills.forEach(f => {
+      const symbol = `${f.coin}-PERP`;
+      if (activeSymbols.has(symbol)) return;
+      
       if (!coinGroups[f.coin]) coinGroups[f.coin] = [];
       coinGroups[f.coin].push(f);
     });
 
     Object.entries(coinGroups).forEach(([coin, coinFills]) => {
-      // Avoid duplicate with currently active positions
-      const isActiveNow = trades.some(t => t.symbol === `${coin}-PERP` && t.status === TradeStatus.OPEN);
-      if (isActiveNow) return;
-
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
       let totalBuySize = 0, totalBuyVol = 0, totalSellSize = 0, totalSellVol = 0, totalFees = 0;
 
@@ -78,9 +79,8 @@ export const syncHyperliquidData = async (address: string): Promise<SyncResult> 
         else { totalSellSize += sz; totalSellVol += (px * sz); }
       });
 
-      // Only import if the trade was actually CLOSED within the 24h window
       const netSize = Math.abs(totalBuySize - totalSellSize);
-      if (netSize < 0.000001 && totalBuySize > 0 && totalSellSize > 0) {
+      if (netSize < 0.000001 && totalBuySize > 0) {
         const type = sorted[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
         const entryPrice = type === TradeType.LONG ? (totalBuyVol / totalBuySize) : (totalSellVol / totalSellSize);
         const exitPrice = type === TradeType.LONG ? (totalSellVol / totalSellSize) : (totalBuyVol / totalBuySize);

@@ -94,6 +94,17 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
                   onChange={e => setEditingWallet({...editingWallet, initialBalance: parseFloat(e.target.value) || 0})}
                 />
               </div>
+
+              <div>
+                <label className="block text-[9px] font-black text-blue-400 mb-1 uppercase tracking-widest">History Cutoff Date</label>
+                <input 
+                  type="datetime-local"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:border-blue-500 text-[10px]"
+                  value={editingWallet.historyStartDate ? editingWallet.historyStartDate.slice(0, 16) : ''}
+                  onChange={e => setEditingWallet({...editingWallet, historyStartDate: e.target.value ? new Date(e.target.value).toISOString() : undefined})}
+                />
+                <p className="text-[7px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">Only trades closed AFTER this date will be imported.</p>
+              </div>
               
               <div className="pt-4 border-t border-slate-700">
                 <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">Optional Synchronization</h4>

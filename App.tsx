@@ -15,7 +15,6 @@ import { syncHyperliquidData } from './services/syncService';
 import { dataService } from './services/dataService';
 
 declare global {
-  // Define AIStudio interface to avoid collision with existing global type
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
@@ -138,11 +137,11 @@ const App: React.FC = () => {
   }, []);
 
   const handleSyncWallet = useCallback(async (isAuto: boolean = false) => {
-    if (!activeWallet?.address || activeWallet.provider === SyncProvider.MANUAL) return;
+    if (!activeWallet?.address || activeWallet.provider === SyncProvider.MANUAL || isSyncing) return;
     if (!isAuto) setIsSyncing(true);
 
     try {
-      const { trades: syncedTrades, accountValue } = await syncHyperliquidData(activeWallet.address);
+      const { trades: syncedTrades, accountValue } = await syncHyperliquidData(activeWallet.address, activeWallet.historyStartDate);
       
       if (accountValue > 0) {
         const closedTrades = trades.filter(t => t.status === TradeStatus.CLOSED);
@@ -151,42 +150,43 @@ const App: React.FC = () => {
         setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, balanceAdjustment: newAdjustment } : w));
       }
 
-      // 1. Check externalId (prevent duplicate sync of the same trade event)
-      // 2. For OPEN positions, check symbol (only one open position per symbol in UI)
-      const existingIds = new Set(trades.map(t => t.externalId).filter(Boolean));
-      const existingOpenSymbols = new Set(trades.filter(t => t.status === TradeStatus.OPEN).map(t => t.symbol));
+      setTrades(prevTrades => {
+        const existingIds = new Set(prevTrades.map(t => t.externalId).filter(Boolean));
+        const existingOpenSymbols = new Set(prevTrades.filter(t => t.status === TradeStatus.OPEN).map(t => t.symbol));
 
-      const newItems = syncedTrades.filter(st => {
-        if (st.externalId && existingIds.has(st.externalId)) return false;
-        if (st.status === TradeStatus.OPEN && existingOpenSymbols.has(st.symbol || '')) return false;
-        return true;
-      });
+        const newItems = syncedTrades.filter(st => {
+          if (st.externalId && existingIds.has(st.externalId)) return false;
+          if (st.status === TradeStatus.OPEN && existingOpenSymbols.has(st.symbol || '')) return false;
+          return true;
+        });
 
-      if (newItems.length > 0) {
+        if (newItems.length === 0) return prevTrades;
+
         const imported: Trade[] = newItems.map(pt => {
           const base: Partial<Trade> = {
             ...pt,
             id: crypto.randomUUID(),
-            notes: [{ id: crypto.randomUUID(), text: `Sync: ${pt.status === TradeStatus.OPEN ? 'Active Position' : 'Closed Trade (Last 24h)'}`, date: new Date().toISOString() }],
+            notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid`, date: new Date().toISOString() }],
             confidence: 3,
             marginMode: pt.marginMode || MarginMode.ISOLATED,
           };
           const { pnl, pnlPercentage } = calculatePnl(base);
           return { ...base, pnl, pnlPercentage, initialRisk: (base.entryPrice! * base.amount!) / (base.leverage || 1) } as Trade;
         });
-        setTrades(prev => [...imported, ...prev]);
-        if (!isAuto) alert(`Sync success! Imported ${imported.length} new records. Equity updated to $${accountValue.toFixed(2)}`);
-      } else if (!isAuto) {
-        alert(`No new updates found. Live Equity: $${accountValue.toFixed(2)}`);
+
+        return [...imported, ...prevTrades];
+      });
+
+      if (!isAuto) {
+        setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, lastSyncAt: new Date().toISOString() } : w));
       }
-      setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, lastSyncAt: new Date().toISOString() } : w));
     } catch (err: any) {
       console.error(err);
-      if (!isAuto) alert(`Sync failed. Please check network and wallet address.`);
+      if (!isAuto) alert(`Sync failed. Check connection or wallet address.`);
     } finally {
-      if (!isAuto) setIsSyncing(false);
+      setIsSyncing(false);
     }
-  }, [activeWallet, trades, calculatePnl, activeWalletId]);
+  }, [activeWallet, trades, calculatePnl, activeWalletId, isSyncing]);
 
   useEffect(() => {
     let interval: any;
@@ -271,8 +271,15 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-3 space-y-6">
                 <TradeForm onAddTrade={(d) => {
-                  const trade: Trade = { ...d, id: crypto.randomUUID(), pnl: 0, pnlPercentage: 0, initialRisk: 0 };
-                  setTrades([trade, ...trades]);
+                  setTrades(prev => {
+                     // Check if an open position for this ticker already exists manually
+                     if (d.status === TradeStatus.OPEN && prev.some(t => t.symbol === d.symbol && t.status === TradeStatus.OPEN)) {
+                       alert(`An active position for ${d.symbol} already exists.`);
+                       return prev;
+                     }
+                     const trade: Trade = { ...d, id: crypto.randomUUID(), pnl: 0, pnlPercentage: 0, initialRisk: 0 };
+                     return [trade, ...prev];
+                  });
                 }} onFormUpdate={setFormValues} />
                 <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
                 <DcaCalculator />
