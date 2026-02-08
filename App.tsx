@@ -89,7 +89,7 @@ const App: React.FC = () => {
   const calculatePnl = useCallback((trade: Partial<Trade>) => {
     const entry = Number(trade.entryPrice) || 0;
     const amount = Number(trade.amount) || 0;
-    const exit = trade.exitPrice !== null ? Number(trade.exitPrice) : null;
+    const exit = (trade.exitPrice !== null && trade.exitPrice !== undefined) ? Number(trade.exitPrice) : null;
     const tradingFees = Number(trade.fees) || 0;
     const fundingFees = Number(trade.fundingFees) || 0;
     const leverage = Number(trade.leverage) || 1;
@@ -116,6 +116,7 @@ const App: React.FC = () => {
     if (!isAuto) setIsSyncing(true);
 
     try {
+      console.log(`[SYNC] Fetching for ${activeWallet.address} (${activeWallet.provider})`);
       let fills = [];
       if (activeWallet.provider === SyncProvider.HYPERLIQUID) {
         const response = await fetch('https://api.hyperliquid.xyz/info', {
@@ -127,34 +128,39 @@ const App: React.FC = () => {
       }
 
       if (fills && Array.isArray(fills) && fills.length > 0) {
-        // Deep scan 100 fills for better context
         const parsedResults = await parseBatchTransactions(fills.slice(0, 100));
         
         const existingExternalIds = new Set(trades.map(t => t.externalId).filter(Boolean));
-        const newUniqueTrades = parsedResults.filter(pt => pt.externalId && !existingExternalIds.has(pt.externalId));
+        const newUniqueParsed = parsedResults.filter(pt => pt.externalId && !existingExternalIds.has(pt.externalId));
 
-        if (newUniqueTrades.length > 0) {
-          const finalTrades: Trade[] = newUniqueTrades.map(pt => {
+        if (newUniqueParsed.length > 0) {
+          const importedTrades: Trade[] = newUniqueParsed.map(pt => {
+            const hasExit = pt.exitPrice !== null && pt.exitPrice !== undefined && pt.exitPrice > 0;
             const baseTrade: Partial<Trade> = {
               ...pt,
               id: crypto.randomUUID(),
-              status: pt.exitPrice ? TradeStatus.CLOSED : TradeStatus.OPEN,
-              notes: [{ id: crypto.randomUUID(), text: `Auto-Synced from ${activeWallet.provider}`, date: new Date().toISOString() }],
-              pnl: 0,
-              pnlPercentage: 0,
+              status: hasExit ? TradeStatus.CLOSED : TradeStatus.OPEN,
+              notes: [{ id: crypto.randomUUID(), text: `Imported via Sync: ${activeWallet.provider}`, date: new Date().toISOString() }],
+              fundingFees: pt.fundingFees || 0,
               confidence: 3,
-              initialRisk: 0,
               leverage: pt.leverage || 1,
               marginMode: MarginMode.ISOLATED,
             };
             const { pnl, pnlPercentage } = calculatePnl(baseTrade);
-            return { ...baseTrade, pnl, pnlPercentage } as Trade;
+            const initialRisk = (baseTrade.entryPrice! * baseTrade.amount!) / baseTrade.leverage!;
+            
+            return { 
+              ...baseTrade, 
+              pnl, 
+              pnlPercentage, 
+              initialRisk: isFinite(initialRisk) ? initialRisk : 0 
+            } as Trade;
           });
 
-          setTrades(prev => [...finalTrades, ...prev]);
-          if (!isAuto) alert(`Imported ${finalTrades.length} new positions.`);
+          setTrades(prev => [...importedTrades, ...prev]);
+          if (!isAuto) alert(`Successfully imported ${importedTrades.length} new trades.`);
         } else if (!isAuto) {
-          alert("Journal is already up to date.");
+          alert("All trades are already synchronized.");
         }
       } else if (!isAuto) {
         alert("No recent fills found for this address.");
@@ -163,8 +169,8 @@ const App: React.FC = () => {
       setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, lastSyncAt: new Date().toISOString() } : w));
       
     } catch (err) {
-      console.error("Sync error:", err);
-      if (!isAuto) alert("Sync failed. Please check the wallet address.");
+      console.error("Sync Critical Error:", err);
+      if (!isAuto) alert("Sync failed. Check console for details.");
     } finally {
       if (!isAuto) setIsSyncing(false);
     }
@@ -211,12 +217,10 @@ const App: React.FC = () => {
     const totalPnl = closedTrades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
     const totalTradingFees = closedTrades.reduce((sum, t) => sum + (Number(t.fees) || 0), 0);
     const totalFundingFees = closedTrades.reduce((sum, t) => sum + (Number(t.fundingFees) || 0), 0);
-    const totalTradeReturn = closedTrades.reduce((sum, t) => sum + (Number(t.pnlPercentage) || 0), 0);
     const wins = closedTrades.filter(t => (Number(t.pnl) || 0) > 0).length;
     
     const initialBalance = Number(activeWallet?.initialBalance) || 0;
-    const adjustment = Number(activeWallet?.balanceAdjustment) || 0;
-    const currentBalance = initialBalance + totalPnl + adjustment;
+    const currentBalance = initialBalance + totalPnl + (activeWallet?.balanceAdjustment || 0);
     
     return {
       initialBalance,
@@ -226,7 +230,7 @@ const App: React.FC = () => {
       winRate: closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0,
       totalPnl: isFinite(totalPnl) ? totalPnl : 0,
       totalPnlPercentage: initialBalance !== 0 ? (totalPnl / initialBalance) * 100 : 0,
-      totalTradeReturn: isFinite(totalTradeReturn) ? totalTradeReturn : 0,
+      totalTradeReturn: closedTrades.reduce((sum, t) => sum + (Number(t.pnlPercentage) || 0), 0),
       totalTradingFees,
       totalFundingFees,
       bestTrade: closedTrades.length > 0 ? Math.max(...closedTrades.map(t => Number(t.pnl) || 0)) : 0,
@@ -263,8 +267,8 @@ const App: React.FC = () => {
   };
 
   const handleDeleteWallet = (id: string) => {
-    if (wallets.length <= 1) return alert("You must have at least one wallet.");
-    if (confirm("Delete this wallet and all its data?")) {
+    if (wallets.length <= 1) return alert("At least one wallet is required.");
+    if (confirm("Permanently delete this wallet?")) {
       const newWallets = wallets.filter(w => w.id !== id);
       setWallets(newWallets);
       localStorage.removeItem(`trades_${id}`);
@@ -287,7 +291,7 @@ const App: React.FC = () => {
             {activeWallet?.address && activeWallet.provider !== SyncProvider.MANUAL && (
               <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-xl border border-slate-700">
                 <div className="flex flex-col items-end">
-                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Active Tracking</span>
+                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Active Sync</span>
                    <span className="text-[9px] font-mono text-blue-400">{activeWallet.address.slice(0, 6)}...{activeWallet.address.slice(-4)}</span>
                 </div>
                 <button 
@@ -317,7 +321,7 @@ const App: React.FC = () => {
           />
           {appState.lastBackup && (
             <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700">
-              Last Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
+              Backup: <span className="text-slate-300 ml-1">{appState.lastBackup}</span>
             </div>
           )}
         </div>
@@ -353,7 +357,7 @@ const App: React.FC = () => {
                     </button>
                   </div>
                   <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">
-                    {aiAnalysis || "AI analysis will provide psychological feedback here."}
+                    {aiAnalysis || "Click analyze to get performance insights."}
                   </div>
                 </div>
               </div>
@@ -375,7 +379,7 @@ const App: React.FC = () => {
                            fundingFees: finalFunding, 
                            exitDate: date || new Date().toISOString(),
                            status: TradeStatus.CLOSED,
-                           notes: notes ? [...t.notes, { id: crypto.randomUUID(), text: `CLOSE: ${notes}`, date: new Date().toISOString() }] : t.notes
+                           notes: notes ? [...t.notes, { id: crypto.randomUUID(), text: `CLOSED: ${notes}`, date: new Date().toISOString() }] : t.notes
                          };
                          const { pnl, pnlPercentage } = calculatePnl(updated);
                          return { ...updated, pnl, pnlPercentage };
@@ -392,8 +396,8 @@ const App: React.FC = () => {
                           ...t, 
                           amount: totalAmount, 
                           entryPrice: newEntry, 
-                          fees: t.fees + addFees, 
-                          fundingFees: t.fundingFees + (addFund || 0),
+                          fees: (t.fees || 0) + addFees, 
+                          fundingFees: (t.fundingFees || 0) + (addFund || 0),
                           leverage: newLev || t.leverage
                         };
                       }
@@ -431,7 +435,7 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Loading...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Loading Portfolio...</p>
           </div>
         )}
       </main>
@@ -440,7 +444,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl">
             <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter flex items-center gap-3">
-              <i className="fas fa-database text-blue-400"></i> Data Management
+              <i className="fas fa-database text-blue-400"></i> Backup Center
             </h3>
             <div className="space-y-4">
               <button 
@@ -450,18 +454,18 @@ const App: React.FC = () => {
                    const url = URL.createObjectURL(blob);
                    const link = document.createElement('a');
                    link.href = url;
-                   link.download = `backup_${new Date().toISOString().split('T')[0]}.json`;
+                   link.download = `crypto_journal_backup_${new Date().toISOString().split('T')[0]}.json`;
                    link.click();
                 }}
                 className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3"
               >
-                Export Backup
+                Export JSON
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3"
               >
-                Import Backup
+                Import JSON
               </button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
                  const file = e.target.files?.[0];
@@ -472,11 +476,11 @@ const App: React.FC = () => {
                      const json = JSON.parse(event.target?.result as string);
                      dataService.importFullBackup(json);
                      window.location.reload();
-                   } catch (e) { alert("Error reading backup file."); }
+                   } catch (e) { alert("Invalid file format."); }
                  };
                  reader.readAsText(file);
               }} />
-              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4">Close</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4">Close Settings</button>
             </div>
           </div>
         </div>

@@ -37,20 +37,21 @@ export const parseBatchTransactions = async (fills: any[]): Promise<Partial<Trad
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Convert these Hyperliquid user fills into a list of consolidated Trade objects.
-      RAW FILLS DATA: ${JSON.stringify(fills)}`,
+      contents: `Parse these Hyperliquid fills into consolidated Trade objects.
+      RAW FILLS: ${JSON.stringify(fills)}`,
       config: {
-        systemInstruction: `You are a Hyperliquid L1 Transaction Parser.
+        systemInstruction: `You are a Hyperliquid L1 Transaction Engine. 
         TASK:
-        1. Analyze the list of "fills". 
-        2. Group fills of the same "coin" that occurred near the same time into logical Trade entries.
-        3. "side" 'B' means Buy, 'S' means Sell. 
-        4. If a position starts with 'B', it's a LONG. If it starts with 'S', it's a SHORT.
-        5. Calculate the average price (px) and total size (sz) for each consolidated trade.
-        6. Generate a stable 'externalId' by concatenating the symbol and the timestamp of the earliest fill in the group.
-        7. If fills show both an entry and a corresponding exit (e.g., Buy 1 BTC then Sell 1 BTC), consolidate into a CLOSED trade with an 'exitPrice'.
-        8. Assume standard leverage (use 1 if not detectable) and isolation.
-        9. Output ONLY the JSON array.`,
+        1. Group "fills" by "coin".
+        2. A "Trade" is a sequence of fills that opens and potentially closes a position.
+        3. If you see 'B' (Buy) followed by 'S' (Sell) for the same coin, group them into ONE Trade with an 'exitPrice'.
+        4. If the total size of 'B' fills equals the total size of 'S' fills, the trade is CLOSED.
+        5. 'entryPrice' is the weighted average price of opening fills.
+        6. 'exitPrice' is the weighted average price of closing fills.
+        7. 'externalId' must be "COIN-TIMESTAMP" of the first fill.
+        8. 'date' is ISO format of the first fill.
+        9. Strictly convert all strings (px, sz, fee) to NUMBERS.
+        10. Output ONLY valid JSON array.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -64,7 +65,7 @@ export const parseBatchTransactions = async (fills: any[]): Promise<Partial<Trad
               exitPrice: { type: Type.NUMBER, nullable: true },
               amount: { type: Type.NUMBER },
               fees: { type: Type.NUMBER },
-              date: { type: Type.STRING, description: "ISO format date of the first fill" },
+              date: { type: Type.STRING },
               leverage: { type: Type.NUMBER }
             },
             required: ["externalId", "symbol", "type", "entryPrice", "amount", "fees", "date", "leverage"]
@@ -74,7 +75,9 @@ export const parseBatchTransactions = async (fills: any[]): Promise<Partial<Trad
     });
 
     const text = response.text?.trim() || "[]";
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    console.log("[DEBUG] AI Consolidated Trades:", parsed);
+    return parsed;
   } catch (error) {
     console.error("Batch AI Parsing Error:", error);
     return [];

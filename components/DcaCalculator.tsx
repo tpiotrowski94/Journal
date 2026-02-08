@@ -6,19 +6,19 @@ const DcaCalculator: React.FC = () => {
   const [type, setType] = useState<TradeType>(TradeType.SHORT);
   const [marginMode, setMarginMode] = useState<MarginMode>(MarginMode.ISOLATED);
   
-  // Dane obecnej pozycji
+  // Current Position Data
   const [currentEntry, setCurrentEntry] = useState<string>('');
   const [currentSize, setCurrentSize] = useState<string>(''); // Notional Value ($)
-  const [currentMargin, setCurrentMargin] = useState<string>(''); // Początkowy Margin ($)
-  const [tradingFees, setTradingFees] = useState<string>('0'); // Suma prowizji (zawsze +)
-  const [accruedFunding, setAccruedFunding] = useState<string>('0'); // Funding (może być -)
+  const [currentMargin, setCurrentMargin] = useState<string>(''); // Initial Margin ($)
+  const [tradingFees, setTradingFees] = useState<string>('0'); 
+  const [accruedFunding, setAccruedFunding] = useState<string>('0'); 
   
-  // Dane dla DCA
+  // DCA Data
   const [addPrice, setAddPrice] = useState<string>('');
   const [addSize, setAddSize] = useState<string>(''); 
   const [addMargin, setAddMargin] = useState<string>(''); 
   
-  // Saldo dla Cross
+  // Cross Mode Balance
   const [walletBalance, setWalletBalance] = useState<string>('');
   
   // MMR (Maintenance Margin Rate)
@@ -36,8 +36,7 @@ const DcaCalculator: React.FC = () => {
       const units = size / entry;
       const mmrDec = mmr / 100;
       
-      // Effective Margin = Zabezpieczenie - Prowizje - Funding
-      // Jeśli funding jest ujemny (zysk), to "- (-funding)" doda go do marginu.
+      // Effective Margin = Collateral - Fees - Funding
       const effectiveMargin = (mode === MarginMode.CROSS ? wallet : margin) - fees - funding;
       
       let liq = 0;
@@ -88,7 +87,6 @@ const DcaCalculator: React.FC = () => {
 
   return (
     <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative overflow-hidden flex flex-col gap-5">
-      {/* Header */}
       <div className="flex justify-between items-center relative z-10">
         <h2 className="text-lg font-black text-white uppercase italic tracking-tight">
           <i className="fas fa-shield-halved text-blue-400 mr-2"></i> Liquidation Radar
@@ -106,7 +104,6 @@ const DcaCalculator: React.FC = () => {
       </div>
 
       <div className="space-y-4">
-        {/* Tryb Cross - Equity */}
         {marginMode === MarginMode.CROSS && (
           <div className="p-3 bg-purple-500/5 border border-purple-500/20 rounded-2xl">
             <label className="block text-[8px] font-black text-purple-400 mb-1 uppercase tracking-widest text-center">Wallet Equity ($) - Total Assets</label>
@@ -146,10 +143,9 @@ const DcaCalculator: React.FC = () => {
           </div>
         </div>
         <p className="text-[6px] text-slate-600 uppercase font-black text-center mt-[-8px]">
-           Zapłacone: (+), Bonus: (-)
+           Paid: (+), Bonus/Profit: (-)
         </p>
 
-        {/* DCA Section */}
         <div className="relative py-2">
           <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700 border-dashed"></div></div>
           <div className="relative flex justify-center"><span className="bg-slate-800 px-3 text-[8px] font-black text-blue-400 uppercase tracking-widest">Average Down (DCA)</span></div>
@@ -170,10 +166,8 @@ const DcaCalculator: React.FC = () => {
           </div>
         </div>
 
-        {/* Results */}
         {results && (
           <div className="space-y-3 animate-in fade-in duration-300">
-            {/* CURRENT LIQ CARD */}
             <div className="bg-slate-900/50 p-3 rounded-2xl border border-slate-700 relative group transition-all hover:border-slate-600">
               <div className="flex justify-between items-start">
                 <div>
@@ -183,19 +177,18 @@ const DcaCalculator: React.FC = () => {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[7px] font-black text-slate-500 uppercase mb-1">Dystans</p>
+                  <p className="text-[7px] font-black text-slate-500 uppercase mb-1">Distance</p>
                   <p className={`text-sm font-mono font-black ${results.current.dist < 10 ? 'text-rose-500' : 'text-slate-300'}`}>{results.current.dist.toFixed(2)}%</p>
                 </div>
               </div>
               <div className="mt-2 pt-2 border-t border-slate-800/50 flex justify-between items-center">
-                 <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest italic">Actual Effective Collateral:</span>
+                 <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest italic">Effective Collateral:</span>
                  <span className={`text-[10px] font-mono font-black ${results.current.effMargin >= (parseFloat(currentMargin) || 0) ? 'text-emerald-500' : 'text-amber-500'}`}>
                    ${results.current.effMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                  </span>
               </div>
             </div>
 
-            {/* PROJECTED DCA CARD */}
             {results.projected && (
               <div className="bg-blue-600/10 p-4 rounded-2xl border border-blue-500/30 relative overflow-hidden shadow-lg shadow-blue-500/5">
                 <div className="absolute top-0 right-0 bg-blue-600 text-[8px] font-black px-3 py-1 rounded-bl-xl text-white uppercase tracking-tighter">Target DCA</div>
@@ -227,7 +220,7 @@ const DcaCalculator: React.FC = () => {
               <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest">MMR %:</span>
               <input type="number" step="0.1" value={mmr} onChange={e => setMmr(parseFloat(e.target.value) || 0)} className="w-8 bg-transparent border-b border-slate-700 text-[10px] text-slate-400 font-bold outline-none text-center" />
            </div>
-           <p className="text-[7px] font-black text-slate-600 italic uppercase">Exchange Grade Calculator</p>
+           <p className="text-[7px] font-black text-slate-600 italic uppercase">Risk Management Tool</p>
         </div>
       </div>
     </div>

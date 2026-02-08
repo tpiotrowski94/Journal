@@ -9,7 +9,7 @@ interface ChartsProps {
 }
 
 const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
-  // Sortujemy po dacie wyjścia, bo to ona decyduje o momencie wpłynięcia PnL do portfela
+  // Sort by exit date for equity curve calculation
   const closedTrades = trades
     .filter(t => t.status === 'CLOSED')
     .sort((a, b) => {
@@ -20,10 +20,10 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
 
   const cumulativeData = [];
   
-  // Punkt startowy (przed pierwszym trejdem)
+  // Starting point
   if (closedTrades.length > 0) {
     const firstTradeTime = new Date(closedTrades[0].exitDate || closedTrades[0].date);
-    const startPointDate = new Date(firstTradeTime.getTime() - 1000 * 60 * 60); // 1h wcześniej
+    const startPointDate = new Date(firstTradeTime.getTime() - 1000 * 60 * 60); // 1h before
     cumulativeData.push({
       timestamp: startPointDate.getTime(),
       label: 'START',
@@ -51,7 +51,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
           <i className="fas fa-chart-line text-blue-400"></i> Equity Evolution
         </h2>
         <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-900 px-3 py-1 rounded-full border border-slate-700">
-          Historyczny Balans Portfela
+          Historical Portfolio Balance
         </div>
       </div>
       
@@ -88,7 +88,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
                 contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)' }}
                 itemStyle={{ color: '#3b82f6', fontWeight: '900', fontSize: '14px' }}
                 labelStyle={{ color: '#64748b', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}
-                formatter={(value: number) => [`$${value.toLocaleString()}`, 'Kapitał']}
+                formatter={(value: number) => [`$${value.toLocaleString()}`, 'Equity']}
               />
               <Area 
                 type="monotone" 
@@ -105,7 +105,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance }) => {
           <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-4">
             <i className="fas fa-chart-area text-4xl opacity-10"></i>
             <div className="uppercase text-[10px] font-black tracking-[0.3em] italic opacity-20">
-              Krzywa kapitału wymaga zamkniętych pozycji
+              Equity curve requires closed positions
             </div>
           </div>
         )}
