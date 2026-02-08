@@ -7,10 +7,9 @@ export interface SyncResult {
 }
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
-  // Use user-defined cutoff or default to last 24 hours
   const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000);
 
-  // 1. Fetch Clearinghouse State (Account Value and Active Positions)
+  // 1. Fetch State
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -18,7 +17,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const state = await stateResponse.json();
 
-  // 2. Fetch User Fills (Transaction History)
+  // 2. Fetch Fills
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -30,19 +29,18 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
-  // Process Active Positions (Live on Exchange)
+  // Process Active Positions
   if (state?.assetPositions) {
     state.assetPositions.forEach((p: any) => {
       const pos = p.position;
       const szi = parseFloat(pos.szi);
       if (szi === 0) return;
-
       const symbol = `${pos.coin}-PERP`;
       activeSymbols.add(symbol);
 
       syncedTrades.push({
         externalId: `hl-active-${symbol}-${address.toLowerCase()}`,
-        symbol: symbol,
+        symbol,
         type: szi > 0 ? TradeType.LONG : TradeType.SHORT,
         entryPrice: parseFloat(pos.entryPx),
         amount: Math.abs(szi),
@@ -56,7 +54,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // Robust Reconstruction of History
+  // Robust Reconstruction with Initial State Discard
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
@@ -68,28 +66,34 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
       let currentBatch: any[] = [];
       let currentNetSize = 0;
+      let hasHitZero = false; 
 
+      // We need to find the first time the position was FLAT to start a reliable reconstruction
+      // Since we don't know the state BEFORE the first fill in history, we must wait for a zero-cross.
+      
       sorted.forEach(fill => {
         const sz = parseFloat(fill.sz);
         const sideMult = fill.side === 'B' ? 1 : -1;
         const fillSize = sz * sideMult;
 
-        // CRITICAL: If we are starting a batch and this fill is reducing a position 
-        // that we don't have the "Open" for (orphaned fill), we skip it to prevent ghost trades.
-        if (currentBatch.length === 0) {
-          // If we can't find the 'start' of the trade in the provided history, skip until we find a zero-start
-          if (Math.abs(currentNetSize) < 0.00000001 && Math.abs(fillSize) > 0) {
-             // We are at zero and opening a position - good.
-          } else {
-             // We are missing the open fill or it's a dust cleanup - skip.
-             return;
+        // If we haven't hit zero yet, we just track the net size but don't start a batch
+        if (!hasHitZero) {
+          currentNetSize += fillSize;
+          if (Math.abs(currentNetSize) < 0.000001) {
+            hasHitZero = true; // Found a clean starting point for the NEXT trade
+            currentNetSize = 0;
           }
+          return;
+        }
+
+        // Now we are in a 'Clean' state, we can start recording
+        if (currentBatch.length === 0) {
+          if (Math.abs(fillSize) < 0.000001) return; // Skip dust
         }
 
         currentBatch.push(fill);
         currentNetSize += fillSize;
 
-        // Trade cycle ends when net size hits zero (with epsilon for dust)
         if (Math.abs(currentNetSize) < 0.000001 && currentBatch.length > 0) {
           const endTime = fill.time;
           const startTime = currentBatch[0].time;
@@ -98,7 +102,6 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
             const symbol = `${coin}-PERP`;
             if (!activeSymbols.has(symbol)) {
               let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
-
               currentBatch.forEach(f => {
                 const fPx = parseFloat(f.px), fSz = parseFloat(f.sz), fFee = parseFloat(f.fee);
                 feesTotal += fFee;

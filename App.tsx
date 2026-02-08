@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const syncLockRef = useRef<string | null>(null); // Prevents "infection" across wallets
   
   const [appState, setAppState] = useState<AppState>({
     storageMode: 'local',
@@ -72,22 +73,35 @@ const App: React.FC = () => {
   }, []);
 
   const handleSyncWallet = useCallback(async (isAuto: boolean = false) => {
-    const walletId = dataService.getActiveWalletId();
-    const currentWallet = dataService.loadWallets().find(w => w.id === walletId);
+    const currentWalletId = dataService.getActiveWalletId();
+    if (!currentWalletId) return;
+    
+    const currentWallet = dataService.loadWallets().find(w => w.id === currentWalletId);
     if (!currentWallet?.address || currentWallet.provider === SyncProvider.MANUAL || isSyncing) return;
     
+    if (syncLockRef.current === currentWalletId) return; // Already syncing this one
+    syncLockRef.current = currentWalletId;
+
     if (!isAuto) setIsSyncing(true);
 
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(currentWallet.address, currentWallet.historyStartDate);
       
+      // CRITICAL CHECK: Did the user switch wallets while we were waiting for the API?
+      if (dataService.getActiveWalletId() !== currentWalletId) {
+        console.warn("Sync aborted: Wallet switched during process.");
+        return;
+      }
+
       let nextTrades: Trade[] = [];
 
       setTrades(prevTrades => {
+        // Double check within state setter
+        if (dataService.getActiveWalletId() !== currentWalletId) return prevTrades;
+
         const providerPrefix = `hl-active-`;
         const addressSuffix = currentWallet.address!.toLowerCase();
         
-        // 1. Remove ONLY active HL positions for this wallet
         let filteredTrades = prevTrades.filter(t => {
            if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
              return !t.externalId.endsWith(addressSuffix);
@@ -95,10 +109,9 @@ const App: React.FC = () => {
            return true;
         });
 
-        // 2. Filter out already existing closed trades by ID to avoid duplicates
         const existingClosedIds = new Set(filteredTrades.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
-
         const newItems: Trade[] = [];
+
         syncedTrades.forEach(st => {
           if (st.status === TradeStatus.OPEN) {
             newItems.push({
@@ -114,7 +127,7 @@ const App: React.FC = () => {
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid (History)`, date: tradeDate }],
+                notes: [{ id: crypto.randomUUID(), text: `Synced History`, date: tradeDate }],
                 confidence: 3, pnl, pnlPercentage, initialRisk: 0
               } as Trade);
             }
@@ -125,10 +138,10 @@ const App: React.FC = () => {
         return nextTrades;
       });
 
-      // 3. Align Wallet Equity with accountValue from Exchange
+      // Align Balance Adjustment ONLY for the synced wallet
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
-          if (w.id === currentWallet.id) {
+          if (w.id === currentWalletId) {
             const closedPnL = nextTrades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
             const neededAdjustment = accountValue - (w.initialBalance + closedPnL);
             return { ...w, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
@@ -139,8 +152,8 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error("Sync Error:", err);
-      if (!isAuto) alert(`Sync failed.`);
     } finally {
+      syncLockRef.current = null;
       setIsSyncing(false);
     }
   }, [calculatePnl, isSyncing]);
@@ -172,14 +185,12 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Sync effect scoped strictly
   useEffect(() => {
-    let interval: any;
     const wallet = wallets.find(w => w.id === activeWalletId);
     if (wallet?.autoSync && wallet?.address) {
       handleSyncWallet(true);
-      interval = setInterval(() => handleSyncWallet(true), 300000);
     }
-    return () => clearInterval(interval);
   }, [activeWalletId, wallets.find(w => w.id === activeWalletId)?.autoSync, handleSyncWallet]);
 
   useEffect(() => {
@@ -266,12 +277,21 @@ const App: React.FC = () => {
       </nav>
       <main className="max-w-[1800px] mx-auto px-4 mt-6">
         <div className="flex justify-between items-center gap-4 mb-4">
-          <WalletSwitcher wallets={wallets} activeWalletId={activeWalletId} onSelect={setActiveWalletId} onAdd={() => {
+          <WalletSwitcher wallets={wallets} activeWalletId={activeWalletId} onSelect={(id) => {
+            dataService.setActiveWalletId(id);
+            setActiveWalletId(id);
+            setTrades(dataService.loadTrades(id));
+          }} onAdd={() => {
             const name = prompt("Wallet name:"); if (name) {
               const w: Wallet = { id: crypto.randomUUID(), name, provider: SyncProvider.MANUAL, initialBalance: 1000, balanceAdjustment: 0, autoSync: false };
-              setWallets([...wallets, w]); setActiveWalletId(w.id);
+              const newWallets = [...wallets, w];
+              setWallets(newWallets); 
+              dataService.saveWallets(newWallets);
+              setActiveWalletId(w.id);
+              dataService.setActiveWalletId(w.id);
+              setTrades([]);
             }
-          }} onDelete={(id) => { if(confirm("Delete wallet and all related trades?")) { setWallets(wallets.filter(w=>w.id!==id)); if(activeWalletId===id) setActiveWalletId(wallets[0]?.id || ''); } }} onUpdateWallet={handleUpdateWallet} />
+          }} onDelete={(id) => { if(confirm("Delete wallet and all related trades?")) { const filtered = wallets.filter(w=>w.id!==id); setWallets(filtered); dataService.saveWallets(filtered); if(activeWalletId===id) { const next = filtered[0]?.id || ''; setActiveWalletId(next); dataService.setActiveWalletId(next); setTrades(next ? dataService.loadTrades(next) : []); } } }} onUpdateWallet={handleUpdateWallet} />
         </div>
 
         {activeWallet ? (
@@ -324,7 +344,7 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Loading Portfolio Engine...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Select or Create Portfolio...</p>
           </div>
         )}
       </main>
