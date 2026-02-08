@@ -71,7 +71,6 @@ const App: React.FC = () => {
     return { pnl: isFinite(pnl) ? pnl : 0, pnlPercentage: margin !== 0 ? (pnl / margin) * 100 : 0 };
   }, []);
 
-  // Stabilize handleSyncWallet: NO TRADES IN DEPENDENCY ARRAY
   const handleSyncWallet = useCallback(async (isAuto: boolean = false) => {
     const currentWallet = dataService.loadWallets().find(w => w.id === dataService.getActiveWalletId());
     if (!currentWallet?.address || currentWallet.provider === SyncProvider.MANUAL || isSyncing) return;
@@ -81,79 +80,61 @@ const App: React.FC = () => {
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(currentWallet.address, currentWallet.historyStartDate);
       
+      let nextTradesState: Trade[] = [];
+
       setTrades(prevTrades => {
-        let updatedTrades = [...prevTrades];
+        // NUCLEAR SYNC STRATEGY:
+        // 1. Remove ALL hl-active positions for the current address to ensure NO duplicates
+        const providerPrefix = `hl-active-`;
+        const addressSuffix = currentWallet.address!.toLowerCase();
+        
+        let filteredTrades = prevTrades.filter(t => {
+           if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
+             return !t.externalId.endsWith(addressSuffix);
+           }
+           return true;
+        });
+
+        const newItems: Trade[] = [];
+        const existingClosedIds = new Set(filteredTrades.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
 
         syncedTrades.forEach(st => {
           if (st.status === TradeStatus.OPEN) {
-            // AUTHORITATIVE ACTIVE POSITION MANAGEMENT
-            // Find if we already have an OPEN position for this symbol from this provider
-            const existingIdx = updatedTrades.findIndex(t => 
-              t.symbol === st.symbol && 
-              t.status === TradeStatus.OPEN && 
-              (t.externalId?.startsWith('hl-active') || t.externalId === st.externalId)
-            );
-
-            if (existingIdx !== -1) {
-              // UPDATE EXISTING (Preserves local notes!)
-              const existing = updatedTrades[existingIdx];
-              updatedTrades[existingIdx] = {
-                ...existing,
-                entryPrice: st.entryPrice || existing.entryPrice,
-                amount: st.amount || existing.amount,
-                leverage: st.leverage || existing.leverage,
-                fundingFees: st.fundingFees || existing.fundingFees,
-                externalId: st.externalId // Ensure ID is up to date
-              };
-            } else {
-              // ADD NEW
-              const newTrade: Trade = {
-                ...st,
-                id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid`, date: new Date().toISOString() }],
-                confidence: 3,
-                pnl: 0, pnlPercentage: 0, initialRisk: (st.entryPrice! * st.amount!) / (st.leverage || 1)
-              } as Trade;
-              updatedTrades = [newTrade, ...updatedTrades];
-            }
+            newItems.push({
+              ...st,
+              id: crypto.randomUUID(),
+              notes: [{ id: crypto.randomUUID(), text: `Synced Active Position`, date: new Date().toISOString() }],
+              confidence: 3,
+              pnl: 0, pnlPercentage: 0, initialRisk: (st.entryPrice! * st.amount!) / (st.leverage || 1)
+            } as Trade);
           } else if (st.status === TradeStatus.CLOSED) {
-            // APPEND HISTORY ONLY IF ID IS UNIQUE
-            const exists = updatedTrades.some(t => t.externalId === st.externalId);
-            if (!exists) {
+            if (!existingClosedIds.has(st.externalId)) {
               const { pnl, pnlPercentage } = calculatePnl(st);
-              const closedTrade: Trade = {
+              newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid (History)`, date: new Date().toISOString() }],
+                notes: [{ id: crypto.randomUUID(), text: `Synced History`, date: st.exitDate || st.date }],
                 confidence: 3,
                 pnl,
                 pnlPercentage,
                 initialRisk: 0
-              } as Trade;
-              updatedTrades = [closedTrade, ...updatedTrades];
+              } as Trade);
             }
           }
         });
 
-        // Optional: Remove stale active positions that are no longer reported by the API
-        const syncedActiveIds = new Set(syncedTrades.filter(t => t.status === TradeStatus.OPEN).map(t => t.externalId));
-        updatedTrades = updatedTrades.filter(t => {
-          if (t.status === TradeStatus.OPEN && t.externalId?.startsWith('hl-active')) {
-            return syncedActiveIds.has(t.externalId);
-          }
-          return true;
-        });
-
-        return updatedTrades;
+        nextTradesState = [...newItems, ...filteredTrades];
+        return nextTradesState;
       });
 
-      // Update balance adjustment
+      // ALIGN EQUITY: Set balanceAdjustment so Portfolio Equity matches Exchange accountValue
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
           if (w.id === currentWallet.id) {
-            // Calc total realized pnl to find adjustment
-            // (This is an approximation based on current state)
-            return { ...w, lastSyncAt: new Date().toISOString() };
+            const closedTradesInSync = nextTradesState.filter(t => t.status === TradeStatus.CLOSED);
+            const totalPnL = closedTradesInSync.reduce((sum, t) => sum + (t.pnl || 0), 0);
+            const autoAdjustment = accountValue - (w.initialBalance + totalPnL);
+            return { ...w, balanceAdjustment: autoAdjustment, lastSyncAt: new Date().toISOString() };
           }
           return w;
         }));
@@ -161,13 +142,12 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error("Sync Error:", err);
-      if (!isAuto) alert(`Sync failed. Check connection.`);
+      if (!isAuto) alert(`Sync failed.`);
     } finally {
       setIsSyncing(false);
     }
   }, [calculatePnl, isSyncing]);
 
-  // Initial Load
   useEffect(() => {
     const loadedWallets = dataService.loadWallets();
     const savedActiveId = dataService.getActiveWalletId();
@@ -195,7 +175,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Sync Interval: Stabilized to only trigger when autoSync settings change
   useEffect(() => {
     let interval: any;
     const wallet = wallets.find(w => w.id === activeWalletId);
@@ -206,11 +185,9 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [activeWalletId, wallets.find(w => w.id === activeWalletId)?.autoSync, handleSyncWallet]);
 
-  // Persistence
   useEffect(() => {
     if (activeWalletId) {
       dataService.saveTrades(activeWalletId, trades);
-      dataService.setActiveWalletId(activeWalletId);
     }
   }, [trades, activeWalletId]);
 

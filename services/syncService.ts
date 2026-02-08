@@ -7,9 +7,10 @@ export interface SyncResult {
 }
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
-  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : 0;
+  // STRICT DEFAULT: If no cutoff provided, only look back 1 hour to avoid cluttering with old history.
+  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 3600000);
 
-  // 1. Fetch Clearinghouse State (Active Positions & Equity)
+  // 1. Fetch Clearinghouse State (Active Positions & Real Equity)
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -17,7 +18,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const state = await stateResponse.json();
 
-  // 2. Fetch User Fills (Trade History - max 2000)
+  // 2. Fetch User Fills (History)
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29,7 +30,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
-  // Process Active Positions
+  // Process Active Positions (The Truth)
   if (state?.assetPositions) {
     state.assetPositions.forEach((p: any) => {
       const pos = p.position;
@@ -55,62 +56,58 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // Process Historical Fills (group all, then filter by exit time)
+  // Process Historical Fills (Strict grouping)
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
-      const symbol = `${f.coin}-PERP`;
-      // We process fills even for active symbols to find previously closed cycles of the same coin
       if (!coinGroups[f.coin]) coinGroups[f.coin] = [];
       coinGroups[f.coin].push(f);
     });
 
     Object.entries(coinGroups).forEach(([coin, coinFills]) => {
-      // Sort fills by time ascending to reconstruct trades
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
-      
       let currentBatch: any[] = [];
       let runningSize = 0;
 
       sorted.forEach(fill => {
         const sz = parseFloat(fill.sz);
         const sideMultiplier = fill.side === 'B' ? 1 : -1;
-        
         currentBatch.push(fill);
         runningSize += (sz * sideMultiplier);
 
-        // If runningSize returns to ~0, a position cycle has been completed
         if (Math.abs(runningSize) < 0.000001 && currentBatch.length > 0) {
           const lastFillTime = currentBatch[currentBatch.length - 1].time;
           
-          // CRITICAL: Filter by historyCutoff only at the end of a completed cycle
+          // Only import if it actually happened after our cutoff
           if (lastFillTime >= cutoffTimestamp) {
-            let totalBuySize = 0, totalBuyVol = 0, totalSellSize = 0, totalSellVol = 0, totalFees = 0;
+            const symbol = `${coin}-PERP`;
+            if (!activeSymbols.has(symbol)) {
+              let totalBuySize = 0, totalBuyVol = 0, totalSellSize = 0, totalSellVol = 0, totalFees = 0;
+              currentBatch.forEach(f => {
+                const px = parseFloat(f.px), sz = parseFloat(f.sz), fee = parseFloat(f.fee);
+                totalFees += fee;
+                if (f.side === 'B') { totalBuySize += sz; totalBuyVol += (px * sz); }
+                else { totalSellSize += sz; totalSellVol += (px * sz); }
+              });
 
-            currentBatch.forEach(f => {
-              const px = parseFloat(f.px), sz = parseFloat(f.sz), fee = parseFloat(f.fee);
-              totalFees += fee;
-              if (f.side === 'B') { totalBuySize += sz; totalBuyVol += (px * sz); }
-              else { totalSellSize += sz; totalSellVol += (px * sz); }
-            });
+              const type = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
+              const entryPrice = type === TradeType.LONG ? (totalBuyVol / totalBuySize) : (totalSellVol / totalSellSize);
+              const exitPrice = type === TradeType.LONG ? (totalSellVol / totalSellSize) : (totalBuyVol / totalBuySize);
 
-            const type = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
-            const entryPrice = type === TradeType.LONG ? (totalBuyVol / totalBuySize) : (totalSellVol / totalSellSize);
-            const exitPrice = type === TradeType.LONG ? (totalSellVol / totalSellSize) : (totalBuyVol / totalBuySize);
-
-            syncedTrades.push({
-              externalId: `hl-closed-${coin}-${currentBatch[0].time}-${lastFillTime}`,
-              symbol: `${coin}-PERP`,
-              type,
-              entryPrice,
-              exitPrice,
-              amount: type === TradeType.LONG ? totalBuySize : totalSellSize,
-              fees: totalFees,
-              date: new Date(currentBatch[0].time).toISOString(),
-              exitDate: new Date(lastFillTime).toISOString(),
-              status: TradeStatus.CLOSED,
-              leverage: 1
-            });
+              syncedTrades.push({
+                externalId: `hl-closed-${coin}-${currentBatch[0].time}-${lastFillTime}`,
+                symbol: symbol,
+                type,
+                entryPrice,
+                exitPrice,
+                amount: type === TradeType.LONG ? totalBuySize : totalSellSize,
+                fees: totalFees,
+                date: new Date(currentBatch[0].time).toISOString(), // Original trade start
+                exitDate: new Date(lastFillTime).toISOString(),    // Original trade end
+                status: TradeStatus.CLOSED,
+                leverage: 1
+              });
+            }
           }
           currentBatch = [];
           runningSize = 0;
