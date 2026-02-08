@@ -72,7 +72,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleSyncWallet = useCallback(async (isAuto: boolean = false) => {
-    const currentWallet = dataService.loadWallets().find(w => w.id === dataService.getActiveWalletId());
+    const walletId = dataService.getActiveWalletId();
+    const currentWallet = dataService.loadWallets().find(w => w.id === walletId);
     if (!currentWallet?.address || currentWallet.provider === SyncProvider.MANUAL || isSyncing) return;
     
     if (!isAuto) setIsSyncing(true);
@@ -80,13 +81,13 @@ const App: React.FC = () => {
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(currentWallet.address, currentWallet.historyStartDate);
       
-      let nextTradesState: Trade[] = [];
+      let finalTrades: Trade[] = [];
 
       setTrades(prevTrades => {
-        // Absolute removal of stale active positions for this address
         const providerPrefix = `hl-active-`;
         const addressSuffix = currentWallet.address!.toLowerCase();
         
+        // Wipe active HL positions for this address to avoid ghost duplicates
         let filteredTrades = prevTrades.filter(t => {
            if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
              return !t.externalId.endsWith(addressSuffix);
@@ -108,28 +109,31 @@ const App: React.FC = () => {
           } else if (st.status === TradeStatus.CLOSED) {
             if (!existingClosedIds.has(st.externalId)) {
               const { pnl, pnlPercentage } = calculatePnl(st);
+              const tradeDate = st.exitDate || st.date || new Date().toISOString();
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                // CRITICAL: Note date MUST match trade end date, not "now"
-                notes: [{ id: crypto.randomUUID(), text: `Synced History`, date: st.exitDate || st.date }],
+                // Use the trade's actual blockchain time for the note
+                notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid (History)`, date: tradeDate }],
                 confidence: 3, pnl, pnlPercentage, initialRisk: 0
               } as Trade);
             }
           }
         });
 
-        nextTradesState = [...newItems, ...filteredTrades];
-        return nextTradesState;
+        finalTrades = [...newItems, ...filteredTrades];
+        return finalTrades;
       });
 
-      // AUTO-ALIMENT: Make sure Equity Card = Account Value
+      // Align Portfolio Equity with Exchange Account Value
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
           if (w.id === currentWallet.id) {
-            const closedPnL = nextTradesState.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
-            const neededAdjustment = accountValue - (w.initialBalance + closedPnL);
-            return { ...w, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
+            const closedTrades = finalTrades.filter(t => t.status === TradeStatus.CLOSED);
+            const totalPnL = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+            // adjustment = what we need to add to (Initial + Realized) to match current HL Equity
+            const adjustment = accountValue - (w.initialBalance + totalPnL);
+            return { ...w, balanceAdjustment: adjustment, lastSyncAt: new Date().toISOString() };
           }
           return w;
         }));
@@ -137,7 +141,7 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error("Sync Error:", err);
-      if (!isAuto) alert(`Sync failed.`);
+      if (!isAuto) alert(`Sync failed. Check API connectivity.`);
     } finally {
       setIsSyncing(false);
     }

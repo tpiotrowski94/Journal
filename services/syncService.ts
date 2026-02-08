@@ -7,10 +7,10 @@ export interface SyncResult {
 }
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
-  // Default: last 24h if no cutoff provided
+  // Use user-defined cutoff or default to last 24 hours
   const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000);
 
-  // 1. Fetch Clearinghouse State (Active Positions)
+  // 1. Fetch Clearinghouse State (Account Value and Active Positions)
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -18,7 +18,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const state = await stateResponse.json();
 
-  // 2. Fetch User Fills (Full History)
+  // 2. Fetch User Fills (Transaction History)
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -30,7 +30,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
-  // Process Active Positions (Exchange Truth)
+  // Handle Open Positions
   if (state?.assetPositions) {
     state.assetPositions.forEach((p: any) => {
       const pos = p.position;
@@ -48,7 +48,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         amount: Math.abs(szi),
         leverage: parseFloat(pos.leverage?.value || "1"),
         status: TradeStatus.OPEN,
-        date: new Date().toISOString(), 
+        date: new Date().toISOString(), // Current sync as open time
         marginMode: pos.leverage?.type === 'cross' ? MarginMode.CROSS : MarginMode.ISOLATED,
         fees: 0,
         fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0")
@@ -56,7 +56,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // Process Historical Fills using "Net Zero" reconstruction
+  // Handle History with Zero-Crossing Detection
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
@@ -67,54 +67,74 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     Object.entries(coinGroups).forEach(([coin, coinFills]) => {
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
       let currentBatch: any[] = [];
-      let netSize = 0;
+      let currentNetSize = 0;
 
       sorted.forEach(fill => {
         const sz = parseFloat(fill.sz);
         const px = parseFloat(fill.px);
         const sideMult = fill.side === 'B' ? 1 : -1;
-        
-        currentBatch.push(fill);
-        netSize += (sz * sideMult);
+        const fillSize = sz * sideMult;
 
-        // A cycle is closed when netSize returns to zero
-        if (Math.abs(netSize) < 0.00000001 && currentBatch.length > 0) {
-          const endTime = currentBatch[currentBatch.length - 1].time;
+        const prevNetSize = currentNetSize;
+        currentNetSize += fillSize;
+
+        // Detection of cycle end: hits exactly zero OR changes sign (flip)
+        const hitZero = Math.abs(currentNetSize) < 0.00000001;
+        const crossedZero = (prevNetSize > 0 && currentNetSize < 0) || (prevNetSize < 0 && currentNetSize > 0);
+
+        currentBatch.push(fill);
+
+        if (hitZero || crossedZero) {
+          const endTime = fill.time;
           const startTime = currentBatch[0].time;
-          
+
+          // Only import if the trade ended within our window
           if (endTime >= cutoffTimestamp) {
             const symbol = `${coin}-PERP`;
+            // Avoid active overlap
             if (!activeSymbols.has(symbol)) {
-              let buyVol = 0, buySize = 0, sellVol = 0, sellSize = 0, totalFees = 0;
-              
+              let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
+
               currentBatch.forEach(f => {
                 const fPx = parseFloat(f.px), fSz = parseFloat(f.sz), fFee = parseFloat(f.fee);
-                totalFees += fFee;
-                if (f.side === 'B') { buySize += fSz; buyVol += (fPx * fSz); }
-                else { sellSize += fSz; sellVol += (fPx * fSz); }
+                feesTotal += fFee;
+                if (f.side === 'B') { bSz += fSz; bVol += (fPx * fSz); }
+                else { sSz += fSz; sVol += (fPx * fSz); }
               });
 
-              const type = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
-              const entryPrice = type === TradeType.LONG ? (buyVol / buySize) : (sellVol / sellSize);
-              const exitPrice = type === TradeType.LONG ? (sellVol / sellSize) : (buyVol / buySize);
+              // Determine type from the first fill of the batch
+              const tradeType = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
+              const entryPrice = tradeType === TradeType.LONG ? (bVol / bSz) : (sVol / sSz);
+              const exitPrice = tradeType === TradeType.LONG ? (sVol / sSz) : (bVol / bSz);
+              const amount = tradeType === TradeType.LONG ? bSz : sSz;
 
-              syncedTrades.push({
-                externalId: `hl-closed-${coin}-${startTime}-${endTime}`,
-                symbol: symbol,
-                type,
-                entryPrice,
-                exitPrice,
-                amount: type === TradeType.LONG ? buySize : sellSize,
-                fees: totalFees,
-                date: new Date(startTime).toISOString(),
-                exitDate: new Date(endTime).toISOString(),
-                status: TradeStatus.CLOSED,
-                leverage: 1 // History usually doesn't need leverage for PnL
-              });
+              if (amount > 0 && isFinite(entryPrice) && isFinite(exitPrice)) {
+                syncedTrades.push({
+                  externalId: `hl-closed-${coin}-${startTime}-${endTime}`,
+                  symbol,
+                  type: tradeType,
+                  entryPrice,
+                  exitPrice,
+                  amount,
+                  fees: feesTotal,
+                  date: new Date(startTime).toISOString(),
+                  exitDate: new Date(endTime).toISOString(),
+                  status: TradeStatus.CLOSED,
+                  leverage: 1
+                });
+              }
             }
           }
-          currentBatch = [];
-          netSize = 0;
+          
+          // If we crossed zero, the remainder of the fill starts the next batch
+          if (crossedZero && !hitZero) {
+            currentBatch = [fill]; 
+            // The size of the new batch is the remainder of currentNetSize
+            // But for simplicity in journaling, we treat flips as separate closures
+          } else {
+            currentBatch = [];
+          }
+          currentNetSize = hitZero ? 0 : currentNetSize;
         }
       });
     });
