@@ -81,13 +81,13 @@ const App: React.FC = () => {
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(currentWallet.address, currentWallet.historyStartDate);
       
-      let finalTrades: Trade[] = [];
+      let nextTrades: Trade[] = [];
 
       setTrades(prevTrades => {
         const providerPrefix = `hl-active-`;
         const addressSuffix = currentWallet.address!.toLowerCase();
         
-        // Wipe active HL positions for this address to avoid ghost duplicates
+        // 1. Remove ONLY active HL positions for this wallet
         let filteredTrades = prevTrades.filter(t => {
            if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
              return !t.externalId.endsWith(addressSuffix);
@@ -95,9 +95,10 @@ const App: React.FC = () => {
            return true;
         });
 
-        const newItems: Trade[] = [];
+        // 2. Filter out already existing closed trades by ID to avoid duplicates
         const existingClosedIds = new Set(filteredTrades.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
 
+        const newItems: Trade[] = [];
         syncedTrades.forEach(st => {
           if (st.status === TradeStatus.OPEN) {
             newItems.push({
@@ -113,7 +114,6 @@ const App: React.FC = () => {
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                // Use the trade's actual blockchain time for the note
                 notes: [{ id: crypto.randomUUID(), text: `Synced from Hyperliquid (History)`, date: tradeDate }],
                 confidence: 3, pnl, pnlPercentage, initialRisk: 0
               } as Trade);
@@ -121,19 +121,17 @@ const App: React.FC = () => {
           }
         });
 
-        finalTrades = [...newItems, ...filteredTrades];
-        return finalTrades;
+        nextTrades = [...newItems, ...filteredTrades];
+        return nextTrades;
       });
 
-      // Align Portfolio Equity with Exchange Account Value
+      // 3. Align Wallet Equity with accountValue from Exchange
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
           if (w.id === currentWallet.id) {
-            const closedTrades = finalTrades.filter(t => t.status === TradeStatus.CLOSED);
-            const totalPnL = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-            // adjustment = what we need to add to (Initial + Realized) to match current HL Equity
-            const adjustment = accountValue - (w.initialBalance + totalPnL);
-            return { ...w, balanceAdjustment: adjustment, lastSyncAt: new Date().toISOString() };
+            const closedPnL = nextTrades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
+            const neededAdjustment = accountValue - (w.initialBalance + closedPnL);
+            return { ...w, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
           }
           return w;
         }));
@@ -141,7 +139,7 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error("Sync Error:", err);
-      if (!isAuto) alert(`Sync failed. Check API connectivity.`);
+      if (!isAuto) alert(`Sync failed.`);
     } finally {
       setIsSyncing(false);
     }

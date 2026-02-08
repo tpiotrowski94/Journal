@@ -30,7 +30,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
-  // Handle Open Positions
+  // Process Active Positions (Live on Exchange)
   if (state?.assetPositions) {
     state.assetPositions.forEach((p: any) => {
       const pos = p.position;
@@ -48,7 +48,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         amount: Math.abs(szi),
         leverage: parseFloat(pos.leverage?.value || "1"),
         status: TradeStatus.OPEN,
-        date: new Date().toISOString(), // Current sync as open time
+        date: new Date().toISOString(),
         marginMode: pos.leverage?.type === 'cross' ? MarginMode.CROSS : MarginMode.ISOLATED,
         fees: 0,
         fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0")
@@ -56,7 +56,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // Handle History with Zero-Crossing Detection
+  // Robust Reconstruction of History
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
@@ -71,27 +71,31 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
 
       sorted.forEach(fill => {
         const sz = parseFloat(fill.sz);
-        const px = parseFloat(fill.px);
         const sideMult = fill.side === 'B' ? 1 : -1;
         const fillSize = sz * sideMult;
 
-        const prevNetSize = currentNetSize;
-        currentNetSize += fillSize;
-
-        // Detection of cycle end: hits exactly zero OR changes sign (flip)
-        const hitZero = Math.abs(currentNetSize) < 0.00000001;
-        const crossedZero = (prevNetSize > 0 && currentNetSize < 0) || (prevNetSize < 0 && currentNetSize > 0);
+        // CRITICAL: If we are starting a batch and this fill is reducing a position 
+        // that we don't have the "Open" for (orphaned fill), we skip it to prevent ghost trades.
+        if (currentBatch.length === 0) {
+          // If we can't find the 'start' of the trade in the provided history, skip until we find a zero-start
+          if (Math.abs(currentNetSize) < 0.00000001 && Math.abs(fillSize) > 0) {
+             // We are at zero and opening a position - good.
+          } else {
+             // We are missing the open fill or it's a dust cleanup - skip.
+             return;
+          }
+        }
 
         currentBatch.push(fill);
+        currentNetSize += fillSize;
 
-        if (hitZero || crossedZero) {
+        // Trade cycle ends when net size hits zero (with epsilon for dust)
+        if (Math.abs(currentNetSize) < 0.000001 && currentBatch.length > 0) {
           const endTime = fill.time;
           const startTime = currentBatch[0].time;
 
-          // Only import if the trade ended within our window
           if (endTime >= cutoffTimestamp) {
             const symbol = `${coin}-PERP`;
-            // Avoid active overlap
             if (!activeSymbols.has(symbol)) {
               let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
 
@@ -102,7 +106,6 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
                 else { sSz += fSz; sVol += (fPx * fSz); }
               });
 
-              // Determine type from the first fill of the batch
               const tradeType = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
               const entryPrice = tradeType === TradeType.LONG ? (bVol / bSz) : (sVol / sSz);
               const exitPrice = tradeType === TradeType.LONG ? (sVol / sSz) : (bVol / bSz);
@@ -125,16 +128,8 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
               }
             }
           }
-          
-          // If we crossed zero, the remainder of the fill starts the next batch
-          if (crossedZero && !hitZero) {
-            currentBatch = [fill]; 
-            // The size of the new batch is the remainder of currentNetSize
-            // But for simplicity in journaling, we treat flips as separate closures
-          } else {
-            currentBatch = [];
-          }
-          currentNetSize = hitZero ? 0 : currentNetSize;
+          currentBatch = [];
+          currentNetSize = 0;
         }
       });
     });
