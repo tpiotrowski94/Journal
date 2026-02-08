@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Trade, TradeType, TradeStatus, MarginMode, SyncProvider, TradingStats, Wallet, PerformanceMetric } from './types';
+import { Trade, TradeType, TradeStatus, MarginMode, SyncProvider, TradingStats, Wallet, PerformanceMetric, NoteEntry } from './types';
 import TradeForm from './components/TradeForm';
 import TradeTable from './components/TradeTable';
 import Dashboard from './components/Dashboard';
@@ -87,9 +87,25 @@ const App: React.FC = () => {
       setTrades(prevTrades => {
         if (dataService.getActiveWalletId() !== currentId) return prevTrades;
 
+        // --- MEMORY PRESERVATION LOGIC ---
+        // 1. Capture metadata from currently OPEN trades in the UI.
+        // We use Symbol as the unique key for open positions (Hyperliquid constraint).
+        const openPositionMeta = new Map<string, { leverage: number, marginMode: MarginMode, notes: NoteEntry[], confidence: number }>();
+        prevTrades.forEach(t => {
+           if (t.status === TradeStatus.OPEN) {
+             openPositionMeta.set(t.symbol, { 
+               leverage: t.leverage, 
+               marginMode: t.marginMode, 
+               notes: t.notes,
+               confidence: t.confidence
+             });
+           }
+        });
+
         const providerPrefix = `hl-active-`;
         const addressSuffix = wallet.address!.toLowerCase();
         
+        // 2. Remove old "active" trades from the state (they will be refreshed by sync)
         let base = prevTrades.filter(t => {
            if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
              return !t.externalId.endsWith(addressSuffix);
@@ -102,20 +118,48 @@ const App: React.FC = () => {
 
         syncedTrades.forEach(st => {
           if (st.status === TradeStatus.OPEN) {
+            // New active position found in sync
+            // Re-attach existing notes/confidence if we had this position open before
+            const existingMeta = openPositionMeta.get(st.symbol || '');
             newItems.push({
               ...st,
               id: crypto.randomUUID(),
-              notes: [{ id: crypto.randomUUID(), text: `Live position`, date: new Date().toISOString() }],
-              confidence: 3, pnl: 0, pnlPercentage: 0, initialRisk: 0
+              notes: existingMeta?.notes || [{ id: crypto.randomUUID(), text: `Live position`, date: new Date().toISOString() }],
+              confidence: existingMeta?.confidence || 3,
+              pnl: 0, pnlPercentage: 0, initialRisk: 0
             } as Trade);
           } else if (st.status === TradeStatus.CLOSED) {
+            // New history item found in sync
             if (!existingIds.has(st.externalId)) {
+              
+              // --- INHERITANCE LOGIC ---
+              // Check if this CLOSED trade corresponds to a position that was just OPEN in our UI.
+              if (st.symbol && openPositionMeta.has(st.symbol)) {
+                 const inherited = openPositionMeta.get(st.symbol)!;
+                 
+                 // Apply the user's settings (Leverage!) from the open position to this new history entry
+                 st.leverage = inherited.leverage;
+                 st.marginMode = inherited.marginMode;
+                 st.confidence = inherited.confidence;
+                 
+                 // Smart Notes Merge: 
+                 // Keep the notes you wrote while the position was open.
+                 if (inherited.notes && inherited.notes.length > 0) {
+                    const newNotes = st.notes || [];
+                    st.notes = [...inherited.notes, ...newNotes];
+                 }
+              }
+
+              // Recalculate PnL using the correct (inherited) leverage
               const { pnl, pnlPercentage } = calculatePnl(st);
+              
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: `Imported history`, date: st.exitDate || new Date().toISOString() }],
-                pnl, pnlPercentage, initialRisk: 0
+                notes: st.notes || [{ id: crypto.randomUUID(), text: `Imported history`, date: st.exitDate || new Date().toISOString() }],
+                pnl, 
+                pnlPercentage, 
+                initialRisk: 0
               } as Trade);
             }
           }
