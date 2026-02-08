@@ -19,6 +19,11 @@ export enum SyncProvider {
   HYPERLIQUID = 'HYPERLIQUID'
 }
 
+export enum PerformanceMetric {
+  ROE = 'ROE', // Return on Equity (Trade specific leverage-based %)
+  ROI = 'ROI'  // Return on Investment (Portfolio growth based %)
+}
+
 export interface NoteEntry {
   id: string;
   text: string;
@@ -70,7 +75,8 @@ export interface Wallet {
   showPillars?: boolean;
   autoSync?: boolean;
   lastSyncAt?: string;
-  historyStartDate?: string; // New field for cutoff
+  historyStartDate?: string;
+  preferredMetric?: PerformanceMetric;
 }
 
 export interface TradingStats {
@@ -86,10 +92,4 @@ export interface TradingStats {
   totalFundingFees: number;
   bestTrade: number;
   worstTrade: number;
-}
-
-export interface AppState {
-  storageMode: 'local' | 'cloud';
-  isSynced: boolean;
-  lastBackup: string | null;
 }

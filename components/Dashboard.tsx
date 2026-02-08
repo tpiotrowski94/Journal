@@ -29,6 +29,11 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
   const totalCosts = (Number(stats.totalTradingFees) || 0) + (Number(stats.totalFundingFees) || 0);
   const isNetProfitFromOps = totalCosts < 0;
 
+  // Calculate Portfolio ROI independently
+  const portfolioRoi = stats.initialBalance > 0 
+    ? ((stats.currentBalance - stats.initialBalance) / stats.initialBalance) * 100 
+    : 0;
+
   const cards = [
     { 
       label: 'Portfolio Equity', 
@@ -40,37 +45,37 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
       isAdjustable: 'equity'
     },
     { 
-      label: 'Realized P&L & ROE', 
-      value: `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toFixed(2)}$`, 
-      sub: `${stats.totalPnlPercentage >= 0 ? '+' : ''}${stats.totalPnlPercentage.toFixed(2)}% ROE`,
+      label: 'Net Profit ($)', 
+      value: `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`, 
+      sub: `${stats.winRate.toFixed(1)}% Win Rate`,
       color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', 
-      icon: 'fa-chart-line',
+      icon: 'fa-coins',
       bg: stats.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10'
     },
     { 
-      label: 'Cumulative Trade ROI', 
+      label: 'Cumulative ROE', 
       value: `${stats.totalTradeReturn >= 0 ? '+' : ''}${stats.totalTradeReturn.toFixed(1)}%`, 
-      sub: `Sum of trade returns`,
-      color: stats.totalTradeReturn >= 0 ? 'text-emerald-500' : 'text-rose-500', 
-      icon: 'fa-percentage',
-      bg: 'bg-slate-800/50'
+      sub: 'Sum of Trade % (Leveraged)',
+      color: stats.totalTradeReturn >= 0 ? 'text-emerald-400' : 'text-rose-400', 
+      icon: 'fa-fire-alt',
+      bg: 'bg-slate-800'
     },
     { 
-      label: isNetProfitFromOps ? 'Net Op. Rebates' : 'Operational Costs', 
+      label: 'Portfolio Growth', 
+      value: `${portfolioRoi >= 0 ? '+' : ''}${portfolioRoi.toFixed(2)}%`, 
+      sub: 'Account ROI (Real Growth)',
+      color: portfolioRoi >= 0 ? 'text-blue-400' : 'text-rose-400', 
+      icon: 'fa-chart-line',
+      bg: 'bg-slate-800'
+    },
+    { 
+      label: isNetProfitFromOps ? 'Net Rebates' : 'Op. Costs', 
       value: `${isNetProfitFromOps ? '+$' : '-$'}${Math.abs(totalCosts).toFixed(2)}`, 
-      sub: `Fund: ${stats.totalFundingFees > 0 ? '+' : ''}${stats.totalFundingFees.toFixed(1)} | Trade: ${stats.totalTradingFees.toFixed(1)}`,
+      sub: `Fees & Funding`,
       color: isNetProfitFromOps ? 'text-emerald-400' : 'text-amber-500', 
       icon: isNetProfitFromOps ? 'fa-hand-holding-dollar' : 'fa-money-bill-transfer',
       bg: isNetProfitFromOps ? 'bg-emerald-500/5' : 'bg-amber-500/5'
-    },
-    { 
-      label: 'Performance', 
-      value: `${stats.winRate.toFixed(1)}% WR`, 
-      sub: `${stats.openTrades} Active Positions`,
-      color: 'text-blue-400', 
-      icon: 'fa-trophy',
-      bg: 'bg-blue-500/10'
-    },
+    }
   ];
 
   return (
@@ -83,24 +88,24 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
           
           <div className="flex justify-between items-start mb-2 relative z-10">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{card.label}</span>
-            {card.isAdjustable === 'equity' && (
-              <div className="flex gap-1.5">
-                 <button 
-                  onClick={() => { setIsEditingInitial(true); setInitialInput(stats.initialBalance.toFixed(0)); }}
-                  className="text-slate-600 hover:text-emerald-400 transition-colors p-1"
-                  title="Edit Initial Portfolio Balance"
-                >
-                  <i className="fas fa-plus text-[9px]"></i>
-                </button>
-                <button 
-                  onClick={() => { setIsEditingBalance(true); setBalanceInput(stats.currentBalance.toFixed(2)); }}
-                  className="text-slate-600 hover:text-blue-400 transition-colors p-1"
-                  title="Adjust Current Real Equity"
-                >
-                  <i className="fas fa-pencil-alt text-[9px]"></i>
-                </button>
-              </div>
-            )}
+            <div className="flex gap-1.5">
+              {card.isAdjustable === 'equity' && (
+                <>
+                  <button 
+                    onClick={() => { setIsEditingInitial(true); setInitialInput(stats.initialBalance.toFixed(0)); }}
+                    className="text-slate-600 hover:text-emerald-400 transition-colors p-1"
+                  >
+                    <i className="fas fa-plus text-[9px]"></i>
+                  </button>
+                  <button 
+                    onClick={() => { setIsEditingBalance(true); setBalanceInput(stats.currentBalance.toFixed(2)); }}
+                    className="text-slate-600 hover:text-blue-400 transition-colors p-1"
+                  >
+                    <i className="fas fa-pencil-alt text-[9px]"></i>
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="relative z-10">
@@ -133,7 +138,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
                 />
               </div>
             ) : (
-              <p className={`text-xl font-black ${card.color} tracking-tighter uppercase italic leading-none`}>{card.value}</p>
+              <p className={`text-xl font-black ${card.color} tracking-tighter uppercase italic leading-none truncate`}>{card.value}</p>
             )}
             <p className="text-[9px] text-slate-500 font-bold uppercase tracking-tight truncate mt-2">{card.sub}</p>
           </div>

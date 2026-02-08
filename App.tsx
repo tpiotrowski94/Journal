@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Trade, TradeType, TradeStatus, MarginMode, SyncProvider, TradingStats, Wallet, AppState } from './types';
+import { Trade, TradeType, TradeStatus, MarginMode, SyncProvider, TradingStats, Wallet, PerformanceMetric } from './types';
 import TradeForm from './components/TradeForm';
 import TradeTable from './components/TradeTable';
 import Dashboard from './components/Dashboard';
@@ -62,6 +62,7 @@ const App: React.FC = () => {
     if (entry === 0 || amount === 0 || exit === null) return { pnl: 0, pnlPercentage: 0 };
     const grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
     const pnl = grossPnl - fees - funding;
+    // ROE = Return on Equity (Margin based on leverage)
     const margin = (entry * amount) / lev;
     return { pnl: isFinite(pnl) ? pnl : 0, pnlPercentage: margin !== 0 ? (pnl / margin) * 100 : 0 };
   }, []);
@@ -104,7 +105,7 @@ const App: React.FC = () => {
             newItems.push({
               ...st,
               id: crypto.randomUUID(),
-              notes: [{ id: crypto.randomUUID(), text: `Live HL Position`, date: new Date().toISOString() }],
+              notes: [{ id: crypto.randomUUID(), text: `Live position`, date: new Date().toISOString() }],
               confidence: 3, pnl: 0, pnlPercentage: 0, initialRisk: 0
             } as Trade);
           } else if (st.status === TradeStatus.CLOSED) {
@@ -113,7 +114,7 @@ const App: React.FC = () => {
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: `Imported from HL History`, date: st.exitDate || new Date().toISOString() }],
+                notes: [{ id: crypto.randomUUID(), text: `Imported history`, date: st.exitDate || new Date().toISOString() }],
                 pnl, pnlPercentage, initialRisk: 0
               } as Trade);
             }
@@ -127,26 +128,18 @@ const App: React.FC = () => {
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
           if (w.id === currentId) {
-            // First time sync for a default port - set initial balance to current account value
-            const isInitial = w.initialBalance === 1000 && w.balanceAdjustment === 0 && finalTradesList.filter(t=>t.status===TradeStatus.CLOSED).length === 0;
-            const targetInitial = isInitial ? accountValue : w.initialBalance;
-            
+            const isFresh = w.initialBalance === 1000 && w.balanceAdjustment === 0 && finalTradesList.filter(t=>t.status===TradeStatus.CLOSED).length === 0;
+            const targetInitial = isFresh ? accountValue : w.initialBalance;
             const closedPnL = finalTradesList.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
             const neededAdjustment = accountValue - (targetInitial + closedPnL);
-            
-            return { 
-              ...w, 
-              initialBalance: targetInitial,
-              balanceAdjustment: neededAdjustment, 
-              lastSyncAt: new Date().toISOString() 
-            };
+            return { ...w, initialBalance: targetInitial, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
           }
           return w;
         }));
       }
 
     } catch (err) {
-      console.error("Sync Failure:", err);
+      console.error("Sync Process Error:", err);
     } finally {
       setIsSyncing(false);
       syncOperationRef.current = null;
@@ -165,8 +158,8 @@ const App: React.FC = () => {
       setTrades(dataService.loadTrades(startId));
     } else {
       const defaultWallet: Wallet = { 
-        id: crypto.randomUUID(), name: 'Main Portfolio', provider: SyncProvider.MANUAL,
-        initialBalance: 1000, balanceAdjustment: 0, autoSync: false
+        id: crypto.randomUUID(), name: 'Portfolio 1', provider: SyncProvider.MANUAL,
+        initialBalance: 1000, balanceAdjustment: 0, autoSync: false, preferredMetric: PerformanceMetric.ROE
       };
       setWallets([defaultWallet]);
       dataService.saveWallets([defaultWallet]);
@@ -206,7 +199,7 @@ const App: React.FC = () => {
       openTrades: trades.filter(t => t.status === TradeStatus.OPEN).length,
       winRate: closed.length > 0 ? (closed.filter(t => t.pnl > 0).length / closed.length) * 100 : 0,
       totalPnl,
-      totalPnlPercentage: initial !== 0 ? (totalPnl / initial) * 100 : 0,
+      totalPnlPercentage: initial > 0 ? (totalPnl / initial) * 100 : 0,
       totalTradeReturn: closed.reduce((sum, t) => sum + (t.pnlPercentage || 0), 0),
       totalTradingFees: closed.reduce((sum, t) => sum + (t.fees || 0), 0),
       totalFundingFees: closed.reduce((sum, t) => sum + (t.fundingFees || 0), 0),
@@ -223,12 +216,10 @@ const App: React.FC = () => {
   };
 
   const handleUpdateWallet = (w: Wallet) => setWallets(prev => prev.map(old => old.id === w.id ? w : old));
-
   const handleUpdateInitialBalance = (v: number) => {
     if (!activeWallet) return;
-    // Recalculate adjustment to keep 'currentBalance' constant when redefining 'initial'
-    const newAdj = activeWallet.initialBalance + activeWallet.balanceAdjustment - v;
-    handleUpdateWallet({ ...activeWallet, initialBalance: v, balanceAdjustment: newAdj });
+    const currentEquity = activeWallet.initialBalance + activeWallet.balanceAdjustment;
+    handleUpdateWallet({ ...activeWallet, initialBalance: v, balanceAdjustment: currentEquity - v });
   };
 
   return (
@@ -265,8 +256,8 @@ const App: React.FC = () => {
             setTrades(dataService.loadTrades(id));
             setAiAnalysis(null);
           }} onAdd={() => {
-            const name = prompt("New portfolio name:"); if (name) {
-              const w: Wallet = { id: crypto.randomUUID(), name, provider: SyncProvider.MANUAL, initialBalance: 1000, balanceAdjustment: 0, autoSync: false };
+            const name = prompt("Portfolio name:"); if (name) {
+              const w: Wallet = { id: crypto.randomUUID(), name, provider: SyncProvider.MANUAL, initialBalance: 1000, balanceAdjustment: 0, autoSync: false, preferredMetric: PerformanceMetric.ROE };
               const newList = [...wallets, w]; setWallets(newList); dataService.saveWallets(newList);
               setActiveWalletId(w.id); dataService.setActiveWalletId(w.id); setTrades([]);
             }
@@ -276,7 +267,11 @@ const App: React.FC = () => {
         {activeWallet ? (
           <>
             <TradingMantra activeWallet={activeWallet} onUpdateWallet={(data) => handleUpdateWallet({...activeWallet, ...data})} />
-            <Dashboard stats={stats} onAdjustBalance={handleAdjustCurrentBalance} onUpdateInitialBalance={handleUpdateInitialBalance} />
+            <Dashboard 
+              stats={stats} 
+              onAdjustBalance={handleAdjustCurrentBalance} 
+              onUpdateInitialBalance={handleUpdateInitialBalance} 
+            />
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-3 space-y-6">
                 <TradeForm onAddTrade={(d) => {
@@ -318,7 +313,14 @@ const App: React.FC = () => {
                    }));
                 }} onAddToPosition={(id, a, p, f, l, fund) => {
                   setTrades(trades.map(t => t.id === id ? { ...t, amount: t.amount + a, entryPrice: ((t.entryPrice * t.amount) + (p * a)) / (t.amount + a), fees: t.fees + f, fundingFees: t.fundingFees + (fund||0), leverage: l || t.leverage } : t));
-                }} onEditTrade={(id, data) => setTrades(trades.map(t => t.id === id ? { ...t, ...data } : t))} onAddNote={(id, text) => setTrades(trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t))} onUpdateNote={(tId, nId, text) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t))} onDeleteNote={(tId, nId) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t))} walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-fire-alt" />
+                }} onEditTrade={(id, data) => setTrades(trades.map(t => {
+                  if (t.id === id) {
+                    const updated = { ...t, ...data };
+                    const { pnl, pnlPercentage } = calculatePnl(updated);
+                    return { ...updated, pnl, pnlPercentage };
+                  }
+                  return t;
+                }))} onAddNote={(id, text) => setTrades(trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t))} onUpdateNote={(tId, nId, text) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t))} onDeleteNote={(tId, nId) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t))} walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-fire-alt" />
                 <TradeTable title="Trade History" trades={trades.filter(t=>t.status===TradeStatus.CLOSED)} status={TradeStatus.CLOSED} onDelete={(id)=>setTrades(trades.filter(t=>t.id!==id))} onCloseTrade={()=>{}} onAddToPosition={()=>{}} onEditTrade={(id, data) => {
                   setTrades(trades.map(t => {
                     if (t.id === id) {
@@ -337,27 +339,27 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Accessing data vaults...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Syncing portfolios...</p>
           </div>
         )}
       </main>
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl text-center">
-            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">System Backup</h3>
+            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">Journal Vault</h3>
             <div className="space-y-4">
               <button onClick={() => {
                 const blob = new Blob([JSON.stringify(dataService.exportFullBackup(), null, 2)], { type: "application/json" });
                 const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `crypto_backup_${new Date().toISOString().slice(0,10)}.json`; link.click();
-              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Download All Portfolios</button>
-              <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Upload Backup</button>
+              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Download All Data</button>
+              <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Upload Data</button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
                  const file = e.target.files?.[0]; if (!file) return;
                  const reader = new FileReader(); reader.onload = (event) => {
                    try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Corrupted backup file."); }
                  }; reader.readAsText(file);
               }} />
-              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Close</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Dismiss</button>
             </div>
           </div>
         </div>

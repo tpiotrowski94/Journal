@@ -63,7 +63,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
     const startOffset = startDayOfMonth(year, month);
 
     for (let i = 0; i < startOffset; i++) {
-      days.push(<div key={`empty-${i}`} className="h-24 md:h-32 bg-slate-900/10 border border-slate-800/30 rounded-xl opacity-10" />);
+      days.push(<div key={`empty-${i}`} className="h-28 md:h-32 bg-slate-900/10 border border-slate-800/30 rounded-xl opacity-10" />);
     }
 
     for (let d = 1; d <= totalDays; d++) {
@@ -71,19 +71,26 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
       const stats = dailyStats[dateKey];
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
-      const barHeight = stats ? (Math.abs(stats.pnl) / maxAbsPnL) * 40 : 0;
+      const barHeight = stats ? (Math.abs(stats.pnl) / maxAbsPnL) * 30 : 0;
       const portRoi = stats && portfolioEquity > 0 ? (stats.pnl / portfolioEquity) * 100 : 0;
 
       days.push(
         <div 
           key={d} 
-          className={`h-24 md:h-32 p-1.5 border rounded-xl flex flex-col transition-all relative overflow-hidden ${
-            isToday ? 'border-blue-500 bg-blue-500/5' : 'border-slate-800 bg-slate-900/20'
+          className={`h-28 md:h-32 p-1.5 border rounded-xl flex flex-col transition-all relative overflow-hidden group ${
+            isToday ? 'border-blue-500 bg-blue-500/5' : 'border-slate-800 bg-slate-900/20 hover:border-slate-600'
           }`}
         >
-          <span className={`text-[9px] font-black ${isToday ? 'text-blue-400' : 'text-slate-600'}`}>{d}</span>
+          <div className="flex justify-between items-start w-full relative z-10">
+             <span className={`text-[9px] font-black ${isToday ? 'text-blue-400' : 'text-slate-600'}`}>{d}</span>
+             {stats && (
+               <span className={`text-[9px] font-black ${stats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                 {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
+               </span>
+             )}
+          </div>
           
-          <div className="flex-1 w-full flex items-center justify-center relative">
+          <div className="flex-1 w-full flex items-end justify-center relative my-1">
             {stats !== undefined && (
               <div 
                 className={`w-1.5 md:w-3 rounded-t-sm transition-all duration-700 ${stats.pnl >= 0 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}
@@ -93,16 +100,19 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
           </div>
 
           {stats !== undefined && (
-            <div className="text-center w-full leading-tight mt-1 space-y-0.5">
-              <div className={`text-[9px] md:text-[11px] font-black truncate ${stats.roeSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {stats.roeSum >= 0 ? '+' : ''}{stats.roeSum.toFixed(0)}% <span className="text-[7px] opacity-60">ROE</span>
-              </div>
-              <div className={`text-[7px] md:text-[9px] font-bold truncate opacity-80 ${stats.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                {stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(0)}$
-              </div>
-              <div className="text-[6px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
-                ROI: {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(2)}%
-              </div>
+            <div className="w-full grid grid-cols-2 gap-0.5 mt-auto pt-1 border-t border-slate-700/30">
+               <div className="flex flex-col items-center">
+                 <span className="text-[6px] font-black text-slate-500 uppercase tracking-widest">Trade ROE</span>
+                 <span className={`text-[8px] font-black ${stats.roeSum >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                   {stats.roeSum >= 0 ? '+' : ''}{Math.round(stats.roeSum)}%
+                 </span>
+               </div>
+               <div className="flex flex-col items-center border-l border-slate-700/30">
+                 <span className="text-[6px] font-black text-slate-500 uppercase tracking-widest">Port ROI</span>
+                 <span className={`text-[8px] font-black ${portRoi >= 0 ? 'text-blue-400' : 'text-rose-400'}`}>
+                   {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(2)}%
+                 </span>
+               </div>
             </div>
           )}
         </div>
@@ -126,13 +136,10 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
         <div className="flex items-center gap-4">
           <div className="hidden md:flex gap-6 border-r border-slate-700 pr-6">
             <div className="text-center">
-              <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Month Result</div>
+              <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Month PnL</div>
               <div className="flex flex-col items-center leading-none">
                 <span className={`text-sm font-black ${monthStats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {monthStats.pnl >= 0 ? '+' : ''}${monthStats.pnl.toFixed(0)}
-                </span>
-                <span className={`text-[9px] font-black mt-0.5 ${monthStats.roe >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
-                  {monthStats.roe >= 0 ? '+' : ''}{monthStats.roe.toFixed(0)}% <span className="text-[7px]">Σ ROE</span>
                 </span>
               </div>
             </div>
