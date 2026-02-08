@@ -35,13 +35,9 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const syncLockRef = useRef<string | null>(null); // Prevents "infection" across wallets
   
-  const [appState, setAppState] = useState<AppState>({
-    storageMode: 'local',
-    isSynced: true,
-    lastBackup: localStorage.getItem('last_backup_date')
-  });
+  // Ref to track which wallet is currently being synced to prevent cross-contamination
+  const syncOperationRef = useRef<string | null>(null);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -73,43 +69,44 @@ const App: React.FC = () => {
   }, []);
 
   const handleSyncWallet = useCallback(async (isAuto: boolean = false) => {
-    const currentWalletId = dataService.getActiveWalletId();
-    if (!currentWalletId) return;
-    
-    const currentWallet = dataService.loadWallets().find(w => w.id === currentWalletId);
-    if (!currentWallet?.address || currentWallet.provider === SyncProvider.MANUAL || isSyncing) return;
-    
-    if (syncLockRef.current === currentWalletId) return; // Already syncing this one
-    syncLockRef.current = currentWalletId;
+    const currentId = dataService.getActiveWalletId();
+    if (!currentId) return;
 
+    const wallet = dataService.loadWallets().find(w => w.id === currentId);
+    if (!wallet?.address || wallet.provider === SyncProvider.MANUAL || isSyncing) return;
+    
+    // Lock this specific sync operation
+    syncOperationRef.current = currentId;
     if (!isAuto) setIsSyncing(true);
 
     try {
-      const { trades: syncedTrades, accountValue } = await syncHyperliquidData(currentWallet.address, currentWallet.historyStartDate);
+      const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       
-      // CRITICAL CHECK: Did the user switch wallets while we were waiting for the API?
-      if (dataService.getActiveWalletId() !== currentWalletId) {
-        console.warn("Sync aborted: Wallet switched during process.");
+      // ABORT if user switched wallets while waiting for API
+      if (dataService.getActiveWalletId() !== currentId) {
+        console.warn("Sync cancelled: Wallet switched.");
         return;
       }
 
-      let nextTrades: Trade[] = [];
+      let finalTradesList: Trade[] = [];
 
       setTrades(prevTrades => {
-        // Double check within state setter
-        if (dataService.getActiveWalletId() !== currentWalletId) return prevTrades;
+        // Re-verify inside state update (React batching protection)
+        if (dataService.getActiveWalletId() !== currentId) return prevTrades;
 
         const providerPrefix = `hl-active-`;
-        const addressSuffix = currentWallet.address!.toLowerCase();
+        const addressSuffix = wallet.address!.toLowerCase();
         
-        let filteredTrades = prevTrades.filter(t => {
+        // 1. Clear old synced active positions for THIS wallet only
+        let base = prevTrades.filter(t => {
            if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
              return !t.externalId.endsWith(addressSuffix);
            }
            return true;
         });
 
-        const existingClosedIds = new Set(filteredTrades.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
+        // 2. Identify new unique closed trades
+        const existingIds = new Set(base.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
         const newItems: Trade[] = [];
 
         syncedTrades.forEach(st => {
@@ -117,32 +114,31 @@ const App: React.FC = () => {
             newItems.push({
               ...st,
               id: crypto.randomUUID(),
-              notes: [{ id: crypto.randomUUID(), text: `Synced Active Position`, date: new Date().toISOString() }],
-              confidence: 3, pnl: 0, pnlPercentage: 0, initialRisk: (st.entryPrice! * st.amount!) / (st.leverage || 1)
+              notes: [{ id: crypto.randomUUID(), text: `Live HL Position`, date: new Date().toISOString() }],
+              confidence: 3, pnl: 0, pnlPercentage: 0, initialRisk: 0
             } as Trade);
           } else if (st.status === TradeStatus.CLOSED) {
-            if (!existingClosedIds.has(st.externalId)) {
+            if (!existingIds.has(st.externalId)) {
               const { pnl, pnlPercentage } = calculatePnl(st);
-              const tradeDate = st.exitDate || st.date || new Date().toISOString();
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: `Synced History`, date: tradeDate }],
-                confidence: 3, pnl, pnlPercentage, initialRisk: 0
+                notes: [{ id: crypto.randomUUID(), text: `Imported from HL History`, date: st.exitDate || new Date().toISOString() }],
+                pnl, pnlPercentage, initialRisk: 0
               } as Trade);
             }
           }
         });
 
-        nextTrades = [...newItems, ...filteredTrades];
-        return nextTrades;
+        finalTradesList = [...newItems, ...base];
+        return finalTradesList;
       });
 
-      // Align Balance Adjustment ONLY for the synced wallet
+      // 3. Align Equity for the CORRECT wallet
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
-          if (w.id === currentWalletId) {
-            const closedPnL = nextTrades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
+          if (w.id === currentId) {
+            const closedPnL = finalTradesList.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
             const neededAdjustment = accountValue - (w.initialBalance + closedPnL);
             return { ...w, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
           }
@@ -151,10 +147,10 @@ const App: React.FC = () => {
       }
 
     } catch (err) {
-      console.error("Sync Error:", err);
+      console.error("Sync Failure:", err);
     } finally {
-      syncLockRef.current = null;
       setIsSyncing(false);
+      syncOperationRef.current = null;
     }
   }, [calculatePnl, isSyncing]);
 
@@ -170,13 +166,8 @@ const App: React.FC = () => {
       setTrades(dataService.loadTrades(startId));
     } else {
       const defaultWallet: Wallet = { 
-        id: crypto.randomUUID(), 
-        name: 'Main Wallet', 
-        provider: SyncProvider.MANUAL,
-        initialBalance: 1000, 
-        balanceAdjustment: 0,
-        autoSync: false,
-        mantra: "Discipline equals freedom."
+        id: crypto.randomUUID(), name: 'Trading Journal', provider: SyncProvider.MANUAL,
+        initialBalance: 1000, balanceAdjustment: 0, autoSync: false
       };
       setWallets([defaultWallet]);
       dataService.saveWallets([defaultWallet]);
@@ -185,7 +176,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Sync effect scoped strictly
   useEffect(() => {
     const wallet = wallets.find(w => w.id === activeWalletId);
     if (wallet?.autoSync && wallet?.address) {
@@ -281,17 +271,14 @@ const App: React.FC = () => {
             dataService.setActiveWalletId(id);
             setActiveWalletId(id);
             setTrades(dataService.loadTrades(id));
+            setAiAnalysis(null);
           }} onAdd={() => {
-            const name = prompt("Wallet name:"); if (name) {
+            const name = prompt("New portfolio name:"); if (name) {
               const w: Wallet = { id: crypto.randomUUID(), name, provider: SyncProvider.MANUAL, initialBalance: 1000, balanceAdjustment: 0, autoSync: false };
-              const newWallets = [...wallets, w];
-              setWallets(newWallets); 
-              dataService.saveWallets(newWallets);
-              setActiveWalletId(w.id);
-              dataService.setActiveWalletId(w.id);
-              setTrades([]);
+              const newList = [...wallets, w]; setWallets(newList); dataService.saveWallets(newList);
+              setActiveWalletId(w.id); dataService.setActiveWalletId(w.id); setTrades([]);
             }
-          }} onDelete={(id) => { if(confirm("Delete wallet and all related trades?")) { const filtered = wallets.filter(w=>w.id!==id); setWallets(filtered); dataService.saveWallets(filtered); if(activeWalletId===id) { const next = filtered[0]?.id || ''; setActiveWalletId(next); dataService.setActiveWalletId(next); setTrades(next ? dataService.loadTrades(next) : []); } } }} onUpdateWallet={handleUpdateWallet} />
+          }} onDelete={(id) => { if(confirm("Delete this portfolio and all associated trades?")) { const filtered = wallets.filter(w=>w.id!==id); setWallets(filtered); dataService.saveWallets(filtered); if(activeWalletId===id) { const next = filtered[0]?.id || ''; setActiveWalletId(next); dataService.setActiveWalletId(next); setTrades(next ? dataService.loadTrades(next) : []); } } }} onUpdateWallet={handleUpdateWallet} />
         </div>
 
         {activeWallet ? (
@@ -320,7 +307,7 @@ const App: React.FC = () => {
                       {isAnalyzing ? '...' : 'Analyze'}
                     </button>
                   </div>
-                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">{aiAnalysis || "Get psychological insights and risk management advice based on your trades."}</div>
+                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10 whitespace-pre-wrap">{aiAnalysis || "Get insights based on your recent trading behavior."}</div>
                 </div>
               </div>
               <div className="lg:col-span-9 space-y-12">
@@ -335,7 +322,16 @@ const App: React.FC = () => {
                 }} onAddToPosition={(id, a, p, f, l, fund) => {
                   setTrades(trades.map(t => t.id === id ? { ...t, amount: t.amount + a, entryPrice: ((t.entryPrice * t.amount) + (p * a)) / (t.amount + a), fees: t.fees + f, fundingFees: t.fundingFees + (fund||0), leverage: l || t.leverage } : t));
                 }} onEditTrade={(id, data) => setTrades(trades.map(t => t.id === id ? { ...t, ...data } : t))} onAddNote={(id, text) => setTrades(trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t))} onUpdateNote={(tId, nId, text) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t))} onDeleteNote={(tId, nId) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t))} walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-fire-alt" />
-                <TradeTable title="Trade History" trades={trades.filter(t=>t.status===TradeStatus.CLOSED)} status={TradeStatus.CLOSED} onDelete={(id)=>setTrades(trades.filter(t=>t.id!==id))} onCloseTrade={()=>{}} onAddToPosition={()=>{}} onEditTrade={(id, data) => setTrades(trades.map(t => t.id === id ? { ...t, ...data } : t))} onAddNote={(id, text) => setTrades(trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t))} onUpdateNote={(tId, nId, text) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t))} onDeleteNote={(tId, nId) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t))} walletBalance={stats.currentBalance} accentColor="blue" icon="fa-history" />
+                <TradeTable title="Trade History" trades={trades.filter(t=>t.status===TradeStatus.CLOSED)} status={TradeStatus.CLOSED} onDelete={(id)=>setTrades(trades.filter(t=>t.id!==id))} onCloseTrade={()=>{}} onAddToPosition={()=>{}} onEditTrade={(id, data) => {
+                  setTrades(trades.map(t => {
+                    if (t.id === id) {
+                      const updated = { ...t, ...data };
+                      const { pnl, pnlPercentage } = calculatePnl(updated);
+                      return { ...updated, pnl, pnlPercentage };
+                    }
+                    return t;
+                  }));
+                }} onAddNote={(id, text) => setTrades(trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t))} onUpdateNote={(tId, nId, text) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t))} onDeleteNote={(tId, nId) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t))} walletBalance={stats.currentBalance} accentColor="blue" icon="fa-history" />
                 <PnLCalendar trades={trades} />
                 <Charts trades={trades} initialBalance={stats.initialBalance} />
               </div>
@@ -344,27 +340,27 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Select or Create Portfolio...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Ready to analyze your edge...</p>
           </div>
         )}
       </main>
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl text-center">
-            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">Backup & Storage</h3>
+            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">Journal Backup</h3>
             <div className="space-y-4">
               <button onClick={() => {
                 const blob = new Blob([JSON.stringify(dataService.exportFullBackup(), null, 2)], { type: "application/json" });
                 const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `crypto_backup_${new Date().toISOString().slice(0,10)}.json`; link.click();
-              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase">Export Full JSON</button>
-              <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase">Import JSON</button>
+              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Export All Portfolios</button>
+              <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Import Full Backup</button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
                  const file = e.target.files?.[0]; if (!file) return;
                  const reader = new FileReader(); reader.onload = (event) => {
-                   try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Invalid backup file."); }
+                   try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Invalid backup file format."); }
                  }; reader.readAsText(file);
               }} />
-              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Close</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Dismiss</button>
             </div>
           </div>
         </div>

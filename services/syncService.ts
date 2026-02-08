@@ -9,7 +9,7 @@ export interface SyncResult {
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
   const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000);
 
-  // 1. Fetch State
+  // 1. Fetch Clearinghouse State
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -17,7 +17,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const state = await stateResponse.json();
 
-  // 2. Fetch Fills
+  // 2. Fetch User Fills (Contains trade fees)
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29,12 +29,13 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
-  // Process Active Positions
+  // Handle Active Positions
   if (state?.assetPositions) {
     state.assetPositions.forEach((p: any) => {
       const pos = p.position;
       const szi = parseFloat(pos.szi);
       if (szi === 0) return;
+      
       const symbol = `${pos.coin}-PERP`;
       activeSymbols.add(symbol);
 
@@ -48,13 +49,13 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         status: TradeStatus.OPEN,
         date: new Date().toISOString(),
         marginMode: pos.leverage?.type === 'cross' ? MarginMode.CROSS : MarginMode.ISOLATED,
-        fees: 0,
+        fees: 0, // Current active fees are hard to track per-position from fills alone without full history
         fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0")
       });
     });
   }
 
-  // Robust Reconstruction with Initial State Discard
+  // Handle History - Strictly start from a zeroed-out state
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
@@ -66,40 +67,38 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
       let currentBatch: any[] = [];
       let currentNetSize = 0;
-      let hasHitZero = false; 
+      let isTracking = false; 
 
-      // We need to find the first time the position was FLAT to start a reliable reconstruction
-      // Since we don't know the state BEFORE the first fill in history, we must wait for a zero-cross.
-      
       sorted.forEach(fill => {
         const sz = parseFloat(fill.sz);
         const sideMult = fill.side === 'B' ? 1 : -1;
         const fillSize = sz * sideMult;
 
-        // If we haven't hit zero yet, we just track the net size but don't start a batch
-        if (!hasHitZero) {
+        // If not tracking, we wait until the position is FLAT before we start logging next trade
+        // This prevents the "118 trades" issue where tails of old trades are imported as new ones
+        if (!isTracking) {
           currentNetSize += fillSize;
           if (Math.abs(currentNetSize) < 0.000001) {
-            hasHitZero = true; // Found a clean starting point for the NEXT trade
+            isTracking = true;
             currentNetSize = 0;
           }
           return;
         }
 
-        // Now we are in a 'Clean' state, we can start recording
-        if (currentBatch.length === 0) {
-          if (Math.abs(fillSize) < 0.000001) return; // Skip dust
-        }
+        // We are in a clean state, check if this fill opens something
+        if (currentBatch.length === 0 && Math.abs(fillSize) < 0.000001) return;
 
         currentBatch.push(fill);
         currentNetSize += fillSize;
 
+        // Trade cycle completed (hit zero)
         if (Math.abs(currentNetSize) < 0.000001 && currentBatch.length > 0) {
           const endTime = fill.time;
           const startTime = currentBatch[0].time;
 
           if (endTime >= cutoffTimestamp) {
             const symbol = `${coin}-PERP`;
+            // Only add if not currently open (avoid overlap)
             if (!activeSymbols.has(symbol)) {
               let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
               currentBatch.forEach(f => {
@@ -123,10 +122,12 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
                   exitPrice,
                   amount,
                   fees: feesTotal,
+                  fundingFees: 0, // Historical funding per trade requires additional API calls (userFunding)
                   date: new Date(startTime).toISOString(),
                   exitDate: new Date(endTime).toISOString(),
                   status: TradeStatus.CLOSED,
-                  leverage: 1
+                  leverage: 1,
+                  confidence: 3
                 });
               }
             }
