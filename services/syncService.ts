@@ -7,7 +7,7 @@ export interface SyncResult {
 }
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
-  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000);
+  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : 0;
 
   // 1. Fetch Clearinghouse State (Active Positions & Equity)
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
@@ -17,7 +17,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const state = await stateResponse.json();
 
-  // 2. Fetch User Fills (Trade History)
+  // 2. Fetch User Fills (Trade History - max 2000)
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -25,7 +25,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const fills = await fillsResponse.json();
 
-  const trades: Partial<Trade>[] = [];
+  const syncedTrades: Partial<Trade>[] = [];
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
@@ -39,7 +39,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       const symbol = `${pos.coin}-PERP`;
       activeSymbols.add(symbol);
 
-      trades.push({
+      syncedTrades.push({
         externalId: `hl-active-${symbol}-${address.toLowerCase()}`,
         symbol: symbol,
         type: szi > 0 ? TradeType.LONG : TradeType.SHORT,
@@ -55,52 +55,69 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // Process Historical Fills (Respective of cutoffDate)
+  // Process Historical Fills (group all, then filter by exit time)
   if (Array.isArray(fills)) {
-    const recentFills = fills.filter(f => f.time >= cutoffTimestamp);
-    
     const coinGroups: Record<string, any[]> = {};
-    recentFills.forEach(f => {
+    fills.forEach(f => {
       const symbol = `${f.coin}-PERP`;
-      if (activeSymbols.has(symbol)) return;
-      
+      // We process fills even for active symbols to find previously closed cycles of the same coin
       if (!coinGroups[f.coin]) coinGroups[f.coin] = [];
       coinGroups[f.coin].push(f);
     });
 
     Object.entries(coinGroups).forEach(([coin, coinFills]) => {
+      // Sort fills by time ascending to reconstruct trades
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
-      let totalBuySize = 0, totalBuyVol = 0, totalSellSize = 0, totalSellVol = 0, totalFees = 0;
+      
+      let currentBatch: any[] = [];
+      let runningSize = 0;
 
-      sorted.forEach(f => {
-        const px = parseFloat(f.px), sz = parseFloat(f.sz), fee = parseFloat(f.fee);
-        totalFees += fee;
-        if (f.side === 'B') { totalBuySize += sz; totalBuyVol += (px * sz); }
-        else { totalSellSize += sz; totalSellVol += (px * sz); }
+      sorted.forEach(fill => {
+        const sz = parseFloat(fill.sz);
+        const sideMultiplier = fill.side === 'B' ? 1 : -1;
+        
+        currentBatch.push(fill);
+        runningSize += (sz * sideMultiplier);
+
+        // If runningSize returns to ~0, a position cycle has been completed
+        if (Math.abs(runningSize) < 0.000001 && currentBatch.length > 0) {
+          const lastFillTime = currentBatch[currentBatch.length - 1].time;
+          
+          // CRITICAL: Filter by historyCutoff only at the end of a completed cycle
+          if (lastFillTime >= cutoffTimestamp) {
+            let totalBuySize = 0, totalBuyVol = 0, totalSellSize = 0, totalSellVol = 0, totalFees = 0;
+
+            currentBatch.forEach(f => {
+              const px = parseFloat(f.px), sz = parseFloat(f.sz), fee = parseFloat(f.fee);
+              totalFees += fee;
+              if (f.side === 'B') { totalBuySize += sz; totalBuyVol += (px * sz); }
+              else { totalSellSize += sz; totalSellVol += (px * sz); }
+            });
+
+            const type = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
+            const entryPrice = type === TradeType.LONG ? (totalBuyVol / totalBuySize) : (totalSellVol / totalSellSize);
+            const exitPrice = type === TradeType.LONG ? (totalSellVol / totalSellSize) : (totalBuyVol / totalBuySize);
+
+            syncedTrades.push({
+              externalId: `hl-closed-${coin}-${currentBatch[0].time}-${lastFillTime}`,
+              symbol: `${coin}-PERP`,
+              type,
+              entryPrice,
+              exitPrice,
+              amount: type === TradeType.LONG ? totalBuySize : totalSellSize,
+              fees: totalFees,
+              date: new Date(currentBatch[0].time).toISOString(),
+              exitDate: new Date(lastFillTime).toISOString(),
+              status: TradeStatus.CLOSED,
+              leverage: 1
+            });
+          }
+          currentBatch = [];
+          runningSize = 0;
+        }
       });
-
-      const netSize = Math.abs(totalBuySize - totalSellSize);
-      if (netSize < 0.000001 && totalBuySize > 0) {
-        const type = sorted[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
-        const entryPrice = type === TradeType.LONG ? (totalBuyVol / totalBuySize) : (totalSellVol / totalSellSize);
-        const exitPrice = type === TradeType.LONG ? (totalSellVol / totalSellSize) : (totalBuyVol / totalBuySize);
-
-        trades.push({
-          externalId: `hl-closed-${coin}-${sorted[0].time}-${sorted[sorted.length-1].time}`,
-          symbol: `${coin}-PERP`,
-          type,
-          entryPrice,
-          exitPrice,
-          amount: type === TradeType.LONG ? totalBuySize : totalSellSize,
-          fees: totalFees,
-          date: new Date(sorted[0].time).toISOString(),
-          exitDate: new Date(sorted[sorted.length - 1].time).toISOString(),
-          status: TradeStatus.CLOSED,
-          leverage: 1
-        });
-      }
     });
   }
 
-  return { trades, accountValue };
+  return { trades: syncedTrades, accountValue };
 };
