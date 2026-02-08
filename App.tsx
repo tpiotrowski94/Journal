@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Trade, TradeType, TradeStatus, MarginMode, SyncProvider, TradingStats, Wallet, AppState, NoteEntry } from './types';
+import { Trade, TradeType, TradeStatus, MarginMode, SyncProvider, TradingStats, Wallet, AppState } from './types';
 import TradeForm from './components/TradeForm';
 import TradeTable from './components/TradeTable';
 import Dashboard from './components/Dashboard';
@@ -10,10 +10,24 @@ import RiskCalculator from './components/RiskCalculator';
 import DcaCalculator from './components/DcaCalculator';
 import WalletSwitcher from './components/WalletSwitcher';
 import TradingMantra from './components/TradingMantra'; 
-import { analyzeTrades, parseBatchTransactions } from './services/geminiService';
+import { analyzeTrades } from './services/geminiService';
+import { syncHyperliquidFills } from './services/syncService';
 import { dataService } from './services/dataService';
 
+// Define AIStudio interface to satisfy TypeScript and provide correct global types
+interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
+
 const App: React.FC = () => {
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeWalletId, setActiveWalletId] = useState<string>('');
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -29,6 +43,27 @@ const App: React.FC = () => {
     isSynced: true,
     lastBackup: localStorage.getItem('last_backup_date')
   });
+
+  // Check API Key on mount for AI features only
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+      } else {
+        setHasApiKey(true);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      // Assume the key selection was successful after triggering the dialog to avoid race condition
+      setHasApiKey(true);
+    }
+  };
 
   // Load data on start
   useEffect(() => {
@@ -65,7 +100,8 @@ const App: React.FC = () => {
   useEffect(() => {
     if (activeWalletId) {
       dataService.setActiveWalletId(activeWalletId);
-      setTrades(dataService.loadTrades(activeWalletId));
+      const loaded = dataService.loadTrades(activeWalletId);
+      setTrades(loaded);
       setAiAnalysis(null);
     }
   }, [activeWalletId]);
@@ -116,61 +152,47 @@ const App: React.FC = () => {
     if (!isAuto) setIsSyncing(true);
 
     try {
-      console.log(`[SYNC] Fetching for ${activeWallet.address} (${activeWallet.provider})`);
-      let fills = [];
-      if (activeWallet.provider === SyncProvider.HYPERLIQUID) {
-        const response = await fetch('https://api.hyperliquid.xyz/info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: "userFills", user: activeWallet.address })
+      console.log(`[SYNC] Fetching Hyperliquid fills for: ${activeWallet.address}`);
+      const parsedResults = await syncHyperliquidFills(activeWallet.address);
+      
+      const existingExternalIds = new Set(trades.map(t => t.externalId).filter(Boolean));
+      const newUniqueParsed = parsedResults.filter(pt => pt.externalId && !existingExternalIds.has(pt.externalId));
+
+      if (newUniqueParsed.length > 0) {
+        const importedTrades: Trade[] = newUniqueParsed.map(pt => {
+          const hasExit = pt.exitPrice !== null && pt.exitPrice !== undefined && pt.exitPrice > 0;
+          const baseTrade: Partial<Trade> = {
+            ...pt,
+            id: crypto.randomUUID(),
+            status: hasExit ? TradeStatus.CLOSED : TradeStatus.OPEN,
+            notes: [{ id: crypto.randomUUID(), text: `Auto-Synced from Hyperliquid`, date: new Date().toISOString() }],
+            fundingFees: pt.fundingFees || 0,
+            confidence: 3,
+            leverage: pt.leverage || 1,
+            marginMode: MarginMode.ISOLATED,
+          };
+          const { pnl, pnlPercentage } = calculatePnl(baseTrade);
+          const initialRisk = (baseTrade.entryPrice! * baseTrade.amount!) / baseTrade.leverage!;
+          
+          return { 
+            ...baseTrade, 
+            pnl, 
+            pnlPercentage, 
+            initialRisk: isFinite(initialRisk) ? initialRisk : 0 
+          } as Trade;
         });
-        fills = await response.json();
-      }
 
-      if (fills && Array.isArray(fills) && fills.length > 0) {
-        const parsedResults = await parseBatchTransactions(fills.slice(0, 100));
-        
-        const existingExternalIds = new Set(trades.map(t => t.externalId).filter(Boolean));
-        const newUniqueParsed = parsedResults.filter(pt => pt.externalId && !existingExternalIds.has(pt.externalId));
-
-        if (newUniqueParsed.length > 0) {
-          const importedTrades: Trade[] = newUniqueParsed.map(pt => {
-            const hasExit = pt.exitPrice !== null && pt.exitPrice !== undefined && pt.exitPrice > 0;
-            const baseTrade: Partial<Trade> = {
-              ...pt,
-              id: crypto.randomUUID(),
-              status: hasExit ? TradeStatus.CLOSED : TradeStatus.OPEN,
-              notes: [{ id: crypto.randomUUID(), text: `Imported via Sync: ${activeWallet.provider}`, date: new Date().toISOString() }],
-              fundingFees: pt.fundingFees || 0,
-              confidence: 3,
-              leverage: pt.leverage || 1,
-              marginMode: MarginMode.ISOLATED,
-            };
-            const { pnl, pnlPercentage } = calculatePnl(baseTrade);
-            const initialRisk = (baseTrade.entryPrice! * baseTrade.amount!) / baseTrade.leverage!;
-            
-            return { 
-              ...baseTrade, 
-              pnl, 
-              pnlPercentage, 
-              initialRisk: isFinite(initialRisk) ? initialRisk : 0 
-            } as Trade;
-          });
-
-          setTrades(prev => [...importedTrades, ...prev]);
-          if (!isAuto) alert(`Successfully imported ${importedTrades.length} new trades.`);
-        } else if (!isAuto) {
-          alert("All trades are already synchronized.");
-        }
+        setTrades(prev => [...importedTrades, ...prev]);
+        if (!isAuto) alert(`Successfully imported ${importedTrades.length} new trades.`);
       } else if (!isAuto) {
-        alert("No recent fills found for this address.");
+        alert("Portfolio is up to date.");
       }
       
       setWallets(prev => prev.map(w => w.id === activeWalletId ? { ...w, lastSyncAt: new Date().toISOString() } : w));
       
-    } catch (err) {
-      console.error("Sync Critical Error:", err);
-      if (!isAuto) alert("Sync failed. Check console for details.");
+    } catch (err: any) {
+      console.error("Sync Error:", err);
+      if (!isAuto) alert(`Sync failed: ${err.message || "Unknown error"}`);
     } finally {
       if (!isAuto) setIsSyncing(false);
     }
@@ -291,7 +313,7 @@ const App: React.FC = () => {
             {activeWallet?.address && activeWallet.provider !== SyncProvider.MANUAL && (
               <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-xl border border-slate-700">
                 <div className="flex flex-col items-end">
-                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Active Sync</span>
+                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">HL Live Sync</span>
                    <span className="text-[9px] font-mono text-blue-400">{activeWallet.address.slice(0, 6)}...{activeWallet.address.slice(-4)}</span>
                 </div>
                 <button 
@@ -348,16 +370,22 @@ const App: React.FC = () => {
                    <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
                    <div className="flex justify-between items-center mb-4 relative z-10">
                     <h2 className="text-lg font-black text-white uppercase italic tracking-tight"><i className="fas fa-brain text-purple-400 mr-2"></i> Trading AI</h2>
-                    <button onClick={async () => {
-                      setIsAnalyzing(true);
-                      setAiAnalysis(await analyzeTrades(trades));
-                      setIsAnalyzing(false);
-                    }} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
-                      {isAnalyzing ? '...' : 'Analyze'}
-                    </button>
+                    <div className="flex gap-2">
+                       {hasApiKey === false && (
+                         <button onClick={handleSelectKey} className="text-[8px] font-black text-blue-400 hover:text-white uppercase">Set Key</button>
+                       )}
+                       <button onClick={async () => {
+                        if (hasApiKey === false) return handleSelectKey();
+                        setIsAnalyzing(true);
+                        setAiAnalysis(await analyzeTrades(trades));
+                        setIsAnalyzing(false);
+                      }} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
+                        {isAnalyzing ? '...' : 'Analyze'}
+                      </button>
+                    </div>
                   </div>
                   <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10">
-                    {aiAnalysis || "Click analyze to get performance insights."}
+                    {aiAnalysis || "Click analyze to get performance insights from Gemini Pro."}
                   </div>
                 </div>
               </div>
