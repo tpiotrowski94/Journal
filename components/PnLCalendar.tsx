@@ -4,9 +4,10 @@ import { Trade, TradeStatus } from '../types';
 
 interface PnLCalendarProps {
   trades: Trade[];
+  portfolioEquity: number;
 }
 
-const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
+const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
@@ -19,12 +20,12 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
   const month = currentDate.getMonth();
 
   const dailyStats = useMemo(() => {
-    const map: Record<string, { pnl: number, pct: number }> = {};
+    const map: Record<string, { pnl: number, roeSum: number }> = {};
     trades.filter(t => t.status === TradeStatus.CLOSED).forEach(t => {
-      const d = new Date(t.date).toISOString().split('T')[0];
-      if (!map[d]) map[d] = { pnl: 0, pct: 0 };
+      const d = new Date(t.exitDate || t.date).toISOString().split('T')[0];
+      if (!map[d]) map[d] = { pnl: 0, roeSum: 0 };
       map[d].pnl += t.pnl;
-      map[d].pct += t.pnlPercentage;
+      map[d].roeSum += t.pnlPercentage;
     });
     return map;
   }, [trades]);
@@ -38,15 +39,15 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
 
   const monthStats = useMemo(() => {
     const monthTrades = trades.filter(t => {
-      const d = new Date(t.date);
+      const d = new Date(t.exitDate || t.date);
       return d.getMonth() === month && d.getFullYear() === year && t.status === TradeStatus.CLOSED;
     });
     const pnl = monthTrades.reduce((sum, t) => sum + t.pnl, 0);
-    const pct = monthTrades.reduce((sum, t) => sum + t.pnlPercentage, 0);
+    const roe = monthTrades.reduce((sum, t) => sum + t.pnlPercentage, 0);
     const wins = monthTrades.filter(t => t.pnl > 0).length;
     return {
       pnl,
-      pct,
+      roe,
       winRate: monthTrades.length > 0 ? (wins / monthTrades.length) * 100 : 0
     };
   }, [trades, month, year]);
@@ -62,7 +63,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
     const startOffset = startDayOfMonth(year, month);
 
     for (let i = 0; i < startOffset; i++) {
-      days.push(<div key={`empty-${i}`} className="h-20 md:h-28 bg-slate-900/10 border border-slate-800/30 rounded-xl opacity-10" />);
+      days.push(<div key={`empty-${i}`} className="h-24 md:h-32 bg-slate-900/10 border border-slate-800/30 rounded-xl opacity-10" />);
     }
 
     for (let d = 1; d <= totalDays; d++) {
@@ -70,33 +71,37 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
       const stats = dailyStats[dateKey];
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
-      const barHeight = stats ? (Math.abs(stats.pnl) / maxAbsPnL) * 50 : 0;
+      const barHeight = stats ? (Math.abs(stats.pnl) / maxAbsPnL) * 40 : 0;
+      const portRoi = stats && portfolioEquity > 0 ? (stats.pnl / portfolioEquity) * 100 : 0;
 
       days.push(
         <div 
           key={d} 
-          className={`h-20 md:h-28 p-1.5 border rounded-xl flex flex-col items-center transition-all relative overflow-hidden ${
-            isToday ? 'border-blue-500/50 bg-blue-500/5' : 'border-slate-800 bg-slate-900/20'
+          className={`h-24 md:h-32 p-1.5 border rounded-xl flex flex-col transition-all relative overflow-hidden ${
+            isToday ? 'border-blue-500 bg-blue-500/5' : 'border-slate-800 bg-slate-900/20'
           }`}
         >
-          <span className={`text-[9px] font-black self-start ${isToday ? 'text-blue-400' : 'text-slate-600'}`}>{d}</span>
+          <span className={`text-[9px] font-black ${isToday ? 'text-blue-400' : 'text-slate-600'}`}>{d}</span>
           
           <div className="flex-1 w-full flex items-center justify-center relative">
             {stats !== undefined && (
               <div 
-                className={`w-1.5 md:w-2.5 rounded-t-sm transition-all duration-700 ${stats.pnl >= 0 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}
+                className={`w-1.5 md:w-3 rounded-t-sm transition-all duration-700 ${stats.pnl >= 0 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}
                 style={{ height: `${Math.max(barHeight, 5)}%` }}
               />
             )}
           </div>
 
           {stats !== undefined && (
-            <div className="text-center w-full leading-tight mt-1">
-              <div className={`text-[8px] md:text-[10px] font-black truncate ${stats.pct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {stats.pct >= 0 ? '+' : ''}{stats.pct.toFixed(1)}%
+            <div className="text-center w-full leading-tight mt-1 space-y-0.5">
+              <div className={`text-[9px] md:text-[11px] font-black truncate ${stats.roeSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {stats.roeSum >= 0 ? '+' : ''}{stats.roeSum.toFixed(0)}% <span className="text-[7px] opacity-60">ROE</span>
               </div>
               <div className={`text-[7px] md:text-[9px] font-bold truncate opacity-80 ${stats.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                 {stats.pnl >= 0 ? '+' : ''}{stats.pnl.toFixed(0)}$
+              </div>
+              <div className="text-[6px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
+                ROI: {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(2)}%
               </div>
             </div>
           )}
@@ -111,29 +116,29 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades }) => {
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-black text-white uppercase italic tracking-tighter flex items-center gap-2">
-            <i className="fas fa-calendar-check text-emerald-500"></i> Performance Calendar
+            <i className="fas fa-calendar-check text-emerald-500"></i> Performance Matrix
           </h2>
           <div className="bg-slate-900 px-3 py-1 rounded-full border border-slate-700">
-             <span className="text-[10px] font-black text-slate-300 uppercase">{monthNames[month]} {year}</span>
+             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{monthNames[month]} {year}</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="hidden md:flex gap-6 border-r border-slate-700 pr-6">
             <div className="text-center">
-              <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Monthly P&L</div>
+              <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Month Result</div>
               <div className="flex flex-col items-center leading-none">
-                <span className={`text-xs font-black ${monthStats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {monthStats.pnl >= 0 ? '+' : ''}{monthStats.pnl.toFixed(2)}$
+                <span className={`text-sm font-black ${monthStats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {monthStats.pnl >= 0 ? '+' : ''}${monthStats.pnl.toFixed(0)}
                 </span>
-                <span className={`text-[9px] font-black mt-0.5 ${monthStats.pct >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
-                  {monthStats.pct >= 0 ? '+' : ''}{monthStats.pct.toFixed(1)}%
+                <span className={`text-[9px] font-black mt-0.5 ${monthStats.roe >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
+                  {monthStats.roe >= 0 ? '+' : ''}{monthStats.roe.toFixed(0)}% <span className="text-[7px]">Σ ROE</span>
                 </span>
               </div>
             </div>
             <div className="text-center">
               <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Win Rate</div>
-              <div className="text-xs font-black text-blue-400">{monthStats.winRate.toFixed(1)}%</div>
+              <div className="text-sm font-black text-blue-400">{monthStats.winRate.toFixed(1)}%</div>
             </div>
           </div>
           <div className="flex gap-1">

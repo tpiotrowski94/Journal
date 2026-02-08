@@ -35,8 +35,6 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Ref to track which wallet is currently being synced to prevent cross-contamination
   const syncOperationRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -75,29 +73,22 @@ const App: React.FC = () => {
     const wallet = dataService.loadWallets().find(w => w.id === currentId);
     if (!wallet?.address || wallet.provider === SyncProvider.MANUAL || isSyncing) return;
     
-    // Lock this specific sync operation
     syncOperationRef.current = currentId;
     if (!isAuto) setIsSyncing(true);
 
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       
-      // ABORT if user switched wallets while waiting for API
-      if (dataService.getActiveWalletId() !== currentId) {
-        console.warn("Sync cancelled: Wallet switched.");
-        return;
-      }
+      if (dataService.getActiveWalletId() !== currentId) return;
 
       let finalTradesList: Trade[] = [];
 
       setTrades(prevTrades => {
-        // Re-verify inside state update (React batching protection)
         if (dataService.getActiveWalletId() !== currentId) return prevTrades;
 
         const providerPrefix = `hl-active-`;
         const addressSuffix = wallet.address!.toLowerCase();
         
-        // 1. Clear old synced active positions for THIS wallet only
         let base = prevTrades.filter(t => {
            if (t.status === TradeStatus.OPEN && t.externalId?.startsWith(providerPrefix)) {
              return !t.externalId.endsWith(addressSuffix);
@@ -105,7 +96,6 @@ const App: React.FC = () => {
            return true;
         });
 
-        // 2. Identify new unique closed trades
         const existingIds = new Set(base.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
         const newItems: Trade[] = [];
 
@@ -134,13 +124,22 @@ const App: React.FC = () => {
         return finalTradesList;
       });
 
-      // 3. Align Equity for the CORRECT wallet
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
           if (w.id === currentId) {
+            // First time sync for a default port - set initial balance to current account value
+            const isInitial = w.initialBalance === 1000 && w.balanceAdjustment === 0 && finalTradesList.filter(t=>t.status===TradeStatus.CLOSED).length === 0;
+            const targetInitial = isInitial ? accountValue : w.initialBalance;
+            
             const closedPnL = finalTradesList.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
-            const neededAdjustment = accountValue - (w.initialBalance + closedPnL);
-            return { ...w, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
+            const neededAdjustment = accountValue - (targetInitial + closedPnL);
+            
+            return { 
+              ...w, 
+              initialBalance: targetInitial,
+              balanceAdjustment: neededAdjustment, 
+              lastSyncAt: new Date().toISOString() 
+            };
           }
           return w;
         }));
@@ -166,7 +165,7 @@ const App: React.FC = () => {
       setTrades(dataService.loadTrades(startId));
     } else {
       const defaultWallet: Wallet = { 
-        id: crypto.randomUUID(), name: 'Trading Journal', provider: SyncProvider.MANUAL,
+        id: crypto.randomUUID(), name: 'Main Portfolio', provider: SyncProvider.MANUAL,
         initialBalance: 1000, balanceAdjustment: 0, autoSync: false
       };
       setWallets([defaultWallet]);
@@ -194,19 +193,6 @@ const App: React.FC = () => {
   }, [wallets]);
 
   const activeWallet = useMemo(() => wallets.find(w => w.id === activeWalletId), [wallets, activeWalletId]);
-
-  const handlePerformAiAnalysis = async () => {
-    if (hasApiKey === false) await handleSelectKey();
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeTrades(trades);
-      setAiAnalysis(result);
-    } catch (error: any) {
-      setAiAnalysis("Analysis failed.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
 
   const stats = useMemo<TradingStats>(() => {
     const closed = trades.filter(t => t.status === TradeStatus.CLOSED);
@@ -237,7 +223,13 @@ const App: React.FC = () => {
   };
 
   const handleUpdateWallet = (w: Wallet) => setWallets(prev => prev.map(old => old.id === w.id ? w : old));
-  const handleUpdateInitialBalance = (v: number) => activeWallet && handleUpdateWallet({ ...activeWallet, initialBalance: v });
+
+  const handleUpdateInitialBalance = (v: number) => {
+    if (!activeWallet) return;
+    // Recalculate adjustment to keep 'currentBalance' constant when redefining 'initial'
+    const newAdj = activeWallet.initialBalance + activeWallet.balanceAdjustment - v;
+    handleUpdateWallet({ ...activeWallet, initialBalance: v, balanceAdjustment: newAdj });
+  };
 
   return (
     <div className="min-h-screen pb-12 bg-[#0f172a] text-slate-200">
@@ -245,14 +237,14 @@ const App: React.FC = () => {
         <div className="max-w-[1800px] mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
              <i className="fas fa-bolt-lightning text-emerald-500 text-xl"></i>
-             <h1 className="text-lg font-black text-white uppercase italic tracking-tighter">CryptoJournal <span className="text-emerald-500">Pro</span></h1>
+             <h1 className="text-lg font-black text-white uppercase italic tracking-tighter leading-none">CryptoJournal <span className="text-emerald-500">Pro</span></h1>
           </div>
           <div className="flex items-center gap-4">
             {activeWallet?.address && (
               <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-xl border border-slate-700">
                 <div className="flex flex-col items-end">
-                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">HL Connector</span>
-                   <span className="text-[9px] font-mono text-blue-400">{activeWallet.address.slice(0, 6)}...{activeWallet.address.slice(-4)}</span>
+                   <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-tight">HL Connector</span>
+                   <span className="text-[9px] font-mono text-blue-400 leading-none">{activeWallet.address.slice(0, 6)}...{activeWallet.address.slice(-4)}</span>
                 </div>
                 <button onClick={() => handleSyncWallet(false)} disabled={isSyncing} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isSyncing ? 'animate-spin bg-blue-600/20 text-blue-400' : 'bg-slate-700 text-slate-300 hover:text-white'}`}>
                   <i className="fas fa-sync"></i>
@@ -278,7 +270,7 @@ const App: React.FC = () => {
               const newList = [...wallets, w]; setWallets(newList); dataService.saveWallets(newList);
               setActiveWalletId(w.id); dataService.setActiveWalletId(w.id); setTrades([]);
             }
-          }} onDelete={(id) => { if(confirm("Delete this portfolio and all associated trades?")) { const filtered = wallets.filter(w=>w.id!==id); setWallets(filtered); dataService.saveWallets(filtered); if(activeWalletId===id) { const next = filtered[0]?.id || ''; setActiveWalletId(next); dataService.setActiveWalletId(next); setTrades(next ? dataService.loadTrades(next) : []); } } }} onUpdateWallet={handleUpdateWallet} />
+          }} onDelete={(id) => { if(confirm("Delete this portfolio?")) { const filtered = wallets.filter(w=>w.id!==id); setWallets(filtered); dataService.saveWallets(filtered); if(activeWalletId===id) { const next = filtered[0]?.id || ''; setActiveWalletId(next); dataService.setActiveWalletId(next); setTrades(next ? dataService.loadTrades(next) : []); } } }} onUpdateWallet={handleUpdateWallet} />
         </div>
 
         {activeWallet ? (
@@ -302,12 +294,17 @@ const App: React.FC = () => {
                 <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl relative group overflow-hidden">
                   <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
                   <div className="flex justify-between items-center mb-4 relative z-10">
-                    <h2 className="text-lg font-black text-white uppercase italic"><i className="fas fa-brain text-purple-400 mr-2"></i> Trading AI</h2>
-                    <button onClick={handlePerformAiAnalysis} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
+                    <h2 className="text-lg font-black text-white uppercase italic tracking-tighter"><i className="fas fa-brain text-purple-400 mr-2"></i> Psychological AI</h2>
+                    <button onClick={async () => {
+                      if (hasApiKey === false) await handleSelectKey();
+                      setIsAnalyzing(true);
+                      try { const result = await analyzeTrades(trades); setAiAnalysis(result); } 
+                      catch (error) { setAiAnalysis("Analysis failed."); } finally { setIsAnalyzing(false); }
+                    }} disabled={isAnalyzing} className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black uppercase transition-all disabled:opacity-50">
                       {isAnalyzing ? '...' : 'Analyze'}
                     </button>
                   </div>
-                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10 whitespace-pre-wrap">{aiAnalysis || "Get insights based on your recent trading behavior."}</div>
+                  <div className="text-xs text-slate-400 leading-relaxed italic min-h-[60px] relative z-10 whitespace-pre-wrap">{aiAnalysis || "Get behavior insights based on your recent trading history."}</div>
                 </div>
               </div>
               <div className="lg:col-span-9 space-y-12">
@@ -332,7 +329,7 @@ const App: React.FC = () => {
                     return t;
                   }));
                 }} onAddNote={(id, text) => setTrades(trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t))} onUpdateNote={(tId, nId, text) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t))} onDeleteNote={(tId, nId) => setTrades(trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t))} walletBalance={stats.currentBalance} accentColor="blue" icon="fa-history" />
-                <PnLCalendar trades={trades} />
+                <PnLCalendar trades={trades} portfolioEquity={stats.currentBalance} />
                 <Charts trades={trades} initialBalance={stats.initialBalance} />
               </div>
             </div>
@@ -340,27 +337,27 @@ const App: React.FC = () => {
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Ready to analyze your edge...</p>
+             <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Accessing data vaults...</p>
           </div>
         )}
       </main>
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl text-center">
-            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">Journal Backup</h3>
+            <h3 className="text-xl font-black text-white mb-6 uppercase tracking-tighter">System Backup</h3>
             <div className="space-y-4">
               <button onClick={() => {
                 const blob = new Blob([JSON.stringify(dataService.exportFullBackup(), null, 2)], { type: "application/json" });
                 const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `crypto_backup_${new Date().toISOString().slice(0,10)}.json`; link.click();
-              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Export All Portfolios</button>
-              <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Import Full Backup</button>
+              }} className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Download All Portfolios</button>
+              <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 border border-slate-700 hover:border-emerald-500 text-white p-4 rounded-xl text-xs font-black uppercase transition-all">Upload Backup</button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={(e) => {
                  const file = e.target.files?.[0]; if (!file) return;
                  const reader = new FileReader(); reader.onload = (event) => {
-                   try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Invalid backup file format."); }
+                   try { dataService.importFullBackup(JSON.parse(event.target?.result as string)); window.location.reload(); } catch (e) { alert("Corrupted backup file."); }
                  }; reader.readAsText(file);
               }} />
-              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Dismiss</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-xs mt-4 hover:bg-blue-500 transition-all">Close</button>
             </div>
           </div>
         </div>
