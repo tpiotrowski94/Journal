@@ -14,6 +14,11 @@ export enum MarginMode {
   CROSS = 'CROSS'
 }
 
+export enum SyncProvider {
+  MANUAL = 'MANUAL',
+  HYPERLIQUID = 'HYPERLIQUID'
+}
+
 export interface NoteEntry {
   id: string;
   text: string;
@@ -22,6 +27,7 @@ export interface NoteEntry {
 
 export interface Trade {
   id: string;
+  externalId?: string; 
   symbol: string;
   type: TradeType;
   status: TradeStatus;
@@ -54,12 +60,16 @@ export interface TradingPillar {
 export interface Wallet {
   id: string;
   name: string;
+  provider: SyncProvider;
+  address?: string;
   initialBalance: number;
   balanceAdjustment: number;
   mantra?: string;
   pillars?: TradingPillar[];
   showMantra?: boolean;
   showPillars?: boolean;
+  autoSync?: boolean;
+  lastSyncAt?: string;
 }
 
 export interface TradingStats {
