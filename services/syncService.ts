@@ -7,10 +7,10 @@ export interface SyncResult {
 }
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
-  // STRICT DEFAULT: If no cutoff provided, only look back 1 hour to avoid cluttering with old history.
-  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 3600000);
+  // Default: last 24h if no cutoff provided
+  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000);
 
-  // 1. Fetch Clearinghouse State (Active Positions & Real Equity)
+  // 1. Fetch Clearinghouse State (Active Positions)
   const stateResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -18,7 +18,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
   const state = await stateResponse.json();
 
-  // 2. Fetch User Fills (History)
+  // 2. Fetch User Fills (Full History)
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -30,7 +30,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const accountValue = parseFloat(state?.marginSummary?.accountValue || "0");
   const activeSymbols = new Set<string>();
 
-  // Process Active Positions (The Truth)
+  // Process Active Positions (Exchange Truth)
   if (state?.assetPositions) {
     state.assetPositions.forEach((p: any) => {
       const pos = p.position;
@@ -48,7 +48,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         amount: Math.abs(szi),
         leverage: parseFloat(pos.leverage?.value || "1"),
         status: TradeStatus.OPEN,
-        date: new Date().toISOString(),
+        date: new Date().toISOString(), 
         marginMode: pos.leverage?.type === 'cross' ? MarginMode.CROSS : MarginMode.ISOLATED,
         fees: 0,
         fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0")
@@ -56,7 +56,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // Process Historical Fills (Strict grouping)
+  // Process Historical Fills using "Net Zero" reconstruction
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
@@ -67,50 +67,54 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     Object.entries(coinGroups).forEach(([coin, coinFills]) => {
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
       let currentBatch: any[] = [];
-      let runningSize = 0;
+      let netSize = 0;
 
       sorted.forEach(fill => {
         const sz = parseFloat(fill.sz);
-        const sideMultiplier = fill.side === 'B' ? 1 : -1;
+        const px = parseFloat(fill.px);
+        const sideMult = fill.side === 'B' ? 1 : -1;
+        
         currentBatch.push(fill);
-        runningSize += (sz * sideMultiplier);
+        netSize += (sz * sideMult);
 
-        if (Math.abs(runningSize) < 0.000001 && currentBatch.length > 0) {
-          const lastFillTime = currentBatch[currentBatch.length - 1].time;
+        // A cycle is closed when netSize returns to zero
+        if (Math.abs(netSize) < 0.00000001 && currentBatch.length > 0) {
+          const endTime = currentBatch[currentBatch.length - 1].time;
+          const startTime = currentBatch[0].time;
           
-          // Only import if it actually happened after our cutoff
-          if (lastFillTime >= cutoffTimestamp) {
+          if (endTime >= cutoffTimestamp) {
             const symbol = `${coin}-PERP`;
             if (!activeSymbols.has(symbol)) {
-              let totalBuySize = 0, totalBuyVol = 0, totalSellSize = 0, totalSellVol = 0, totalFees = 0;
+              let buyVol = 0, buySize = 0, sellVol = 0, sellSize = 0, totalFees = 0;
+              
               currentBatch.forEach(f => {
-                const px = parseFloat(f.px), sz = parseFloat(f.sz), fee = parseFloat(f.fee);
-                totalFees += fee;
-                if (f.side === 'B') { totalBuySize += sz; totalBuyVol += (px * sz); }
-                else { totalSellSize += sz; totalSellVol += (px * sz); }
+                const fPx = parseFloat(f.px), fSz = parseFloat(f.sz), fFee = parseFloat(f.fee);
+                totalFees += fFee;
+                if (f.side === 'B') { buySize += fSz; buyVol += (fPx * fSz); }
+                else { sellSize += fSz; sellVol += (fPx * fSz); }
               });
 
               const type = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
-              const entryPrice = type === TradeType.LONG ? (totalBuyVol / totalBuySize) : (totalSellVol / totalSellSize);
-              const exitPrice = type === TradeType.LONG ? (totalSellVol / totalSellSize) : (totalBuyVol / totalBuySize);
+              const entryPrice = type === TradeType.LONG ? (buyVol / buySize) : (sellVol / sellSize);
+              const exitPrice = type === TradeType.LONG ? (sellVol / sellSize) : (buyVol / buySize);
 
               syncedTrades.push({
-                externalId: `hl-closed-${coin}-${currentBatch[0].time}-${lastFillTime}`,
+                externalId: `hl-closed-${coin}-${startTime}-${endTime}`,
                 symbol: symbol,
                 type,
                 entryPrice,
                 exitPrice,
-                amount: type === TradeType.LONG ? totalBuySize : totalSellSize,
+                amount: type === TradeType.LONG ? buySize : sellSize,
                 fees: totalFees,
-                date: new Date(currentBatch[0].time).toISOString(), // Original trade start
-                exitDate: new Date(lastFillTime).toISOString(),    // Original trade end
+                date: new Date(startTime).toISOString(),
+                exitDate: new Date(endTime).toISOString(),
                 status: TradeStatus.CLOSED,
-                leverage: 1
+                leverage: 1 // History usually doesn't need leverage for PnL
               });
             }
           }
           currentBatch = [];
-          runningSize = 0;
+          netSize = 0;
         }
       });
     });

@@ -83,8 +83,7 @@ const App: React.FC = () => {
       let nextTradesState: Trade[] = [];
 
       setTrades(prevTrades => {
-        // NUCLEAR SYNC STRATEGY:
-        // 1. Remove ALL hl-active positions for the current address to ensure NO duplicates
+        // Absolute removal of stale active positions for this address
         const providerPrefix = `hl-active-`;
         const addressSuffix = currentWallet.address!.toLowerCase();
         
@@ -104,8 +103,7 @@ const App: React.FC = () => {
               ...st,
               id: crypto.randomUUID(),
               notes: [{ id: crypto.randomUUID(), text: `Synced Active Position`, date: new Date().toISOString() }],
-              confidence: 3,
-              pnl: 0, pnlPercentage: 0, initialRisk: (st.entryPrice! * st.amount!) / (st.leverage || 1)
+              confidence: 3, pnl: 0, pnlPercentage: 0, initialRisk: (st.entryPrice! * st.amount!) / (st.leverage || 1)
             } as Trade);
           } else if (st.status === TradeStatus.CLOSED) {
             if (!existingClosedIds.has(st.externalId)) {
@@ -113,11 +111,9 @@ const App: React.FC = () => {
               newItems.push({
                 ...st,
                 id: crypto.randomUUID(),
+                // CRITICAL: Note date MUST match trade end date, not "now"
                 notes: [{ id: crypto.randomUUID(), text: `Synced History`, date: st.exitDate || st.date }],
-                confidence: 3,
-                pnl,
-                pnlPercentage,
-                initialRisk: 0
+                confidence: 3, pnl, pnlPercentage, initialRisk: 0
               } as Trade);
             }
           }
@@ -127,14 +123,13 @@ const App: React.FC = () => {
         return nextTradesState;
       });
 
-      // ALIGN EQUITY: Set balanceAdjustment so Portfolio Equity matches Exchange accountValue
+      // AUTO-ALIMENT: Make sure Equity Card = Account Value
       if (accountValue > 0) {
         setWallets(prev => prev.map(w => {
           if (w.id === currentWallet.id) {
-            const closedTradesInSync = nextTradesState.filter(t => t.status === TradeStatus.CLOSED);
-            const totalPnL = closedTradesInSync.reduce((sum, t) => sum + (t.pnl || 0), 0);
-            const autoAdjustment = accountValue - (w.initialBalance + totalPnL);
-            return { ...w, balanceAdjustment: autoAdjustment, lastSyncAt: new Date().toISOString() };
+            const closedPnL = nextTradesState.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
+            const neededAdjustment = accountValue - (w.initialBalance + closedPnL);
+            return { ...w, balanceAdjustment: neededAdjustment, lastSyncAt: new Date().toISOString() };
           }
           return w;
         }));
