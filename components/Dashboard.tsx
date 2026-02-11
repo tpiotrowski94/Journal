@@ -26,11 +26,15 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
     setIsEditingInitial(false);
   };
 
+  // Costs are stored as positive numbers in the data structure
   const totalCosts = (Number(stats.totalTradingFees) || 0) + (Number(stats.totalFundingFees) || 0);
-  const isNetProfitFromOps = totalCosts < 0;
+  
+  // Gross PnL = Net PnL + Costs (Since Net = Gross - Costs)
+  const grossPnl = stats.totalPnl + totalCosts;
+
+  const isNetProfitFromOps = totalCosts < 0; // Rare case where you get paid more funding/rebates than fees
 
   // Calculate Portfolio ROI based on PnL (Trading Performance Only)
-  // This ignores deposits/withdrawals (balanceAdjustment) to show true trading skill growth.
   const tradingPerformanceRoi = stats.initialBalance > 0 
     ? (stats.totalPnl / stats.initialBalance) * 100 
     : 0;
@@ -46,9 +50,10 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
       isAdjustable: 'equity'
     },
     { 
-      label: 'Net Profit ($)', 
+      label: 'Net Realized PnL', // Changed from "Net Profit" to be explicit
       value: `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`, 
-      sub: `${stats.winRate.toFixed(1)}% Win Rate`,
+      // Show Gross PnL calculation here for transparency
+      sub: `Gross: $${grossPnl.toLocaleString(undefined, {maximumFractionDigits: 0})} • WR: ${stats.winRate.toFixed(0)}%`,
       color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', 
       icon: 'fa-coins',
       bg: stats.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10'
@@ -70,9 +75,9 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
       bg: 'bg-slate-800'
     },
     { 
-      label: isNetProfitFromOps ? 'Net Rebates' : 'Op. Costs', 
+      label: isNetProfitFromOps ? 'Net Rebates' : 'Total Costs', 
       value: `${isNetProfitFromOps ? '+$' : '-$'}${Math.abs(totalCosts).toFixed(2)}`, 
-      sub: `Fees & Funding`,
+      sub: `Deducted from Gross PnL`, // Explicitly state this is already subtracted
       color: isNetProfitFromOps ? 'text-emerald-400' : 'text-amber-500', 
       icon: isNetProfitFromOps ? 'fa-hand-holding-dollar' : 'fa-money-bill-transfer',
       bg: isNetProfitFromOps ? 'bg-emerald-500/5' : 'bg-amber-500/5'

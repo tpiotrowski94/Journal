@@ -140,7 +140,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 <th className="px-6 py-4">Position Exposure</th>
                 <th className="px-6 py-4">Execution / Costs</th>
                 <th className="px-6 py-4">Operational Costs</th>
-                <th className="px-6 py-4 text-right">{isOpenTable ? 'Stop Loss / Risk' : 'Outcome & PnL'}</th>
+                <th className="px-6 py-4 text-right">{isOpenTable ? 'Stop Loss / Risk' : 'Net PnL / ROE'}</th>
                 <th className="px-6 py-4 text-center">Actions</th>
               </tr>
             </thead>
@@ -165,6 +165,13 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 const fundingVal = Number(trade.fundingFees) || 0;
                 const totalCosts = feesVal + fundingVal;
                 const conf = trade.confidence || 3;
+
+                // Calculate Gross PnL (Price Diff only) for display
+                const grossPnl = (!isOpenTable && trade.exitPrice) 
+                  ? (trade.type === TradeType.LONG 
+                      ? (Number(trade.exitPrice) - entryVal) * amountVal
+                      : (entryVal - Number(trade.exitPrice)) * amountVal)
+                  : 0;
 
                 // Koszty przy wyjściu (jeśli były doliczane jako incremental)
                 const exitFeesVal = Number(trade.exitFees) || 0;
@@ -270,6 +277,9 @@ const TradeTable: React.FC<TradeTableProps> = ({
                           </>
                         ) : (
                           <div className="leading-none flex flex-col items-end">
+                            <span className="text-[7px] text-slate-600 font-bold uppercase tracking-wider mb-1">
+                              Gross: <span className={grossPnl >= 0 ? 'text-slate-400' : 'text-rose-900'}>{grossPnl >= 0 ? '+' : ''}{grossPnl.toFixed(2)}</span>
+                            </span>
                             <div className={`font-black text-[15px] ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                               {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)} $
                             </div>
