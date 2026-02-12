@@ -8,8 +8,17 @@ export interface SyncResult {
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
   const userAddr = address.trim().toLowerCase();
-  // Cutoff - domyślnie 30 dni, jeśli nie podano
-  const cutoffTimestamp = historyCutoff ? new Date(historyCutoff).getTime() : (Date.now() - 86400000 * 30);
+  
+  // Cutoff handling:
+  // Jeśli podano historyCutoff, używamy go. Jeśli nie, domyślnie 30 dni wstecz.
+  // Upewniamy się, że timestamp jest liczbą.
+  let cutoffTimestamp = Date.now() - (86400000 * 30);
+  if (historyCutoff) {
+    const parsed = new Date(historyCutoff).getTime();
+    if (!isNaN(parsed)) {
+      cutoffTimestamp = parsed;
+    }
+  }
 
   const [webDataResponse, midsResponse] = await Promise.all([
     fetch('https://api.hyperliquid.xyz/info', {
@@ -28,6 +37,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   
   const data = await webDataResponse.json();
   
+  // Zabezpieczenie przed błędem null w allMids
   let mids: Record<string, any> = {};
   try {
     if (midsResponse.ok) {
@@ -43,11 +53,11 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const marginSummary = clearinghouse.marginSummary || {};
   const crossMarginSummary = clearinghouse.crossMarginSummary || {};
 
-  const perpEquity = Math.max(
-    parseFloat(marginSummary.accountValue || "0"),
-    parseFloat(crossMarginSummary.accountValue || "0"),
-    parseFloat(marginSummary.totalMarginEquity || "0")
-  );
+  // FIX: Wcześniej używano Math.max z totalMarginEquity. 
+  const marginAccountValue = parseFloat(marginSummary.accountValue || "0");
+  const crossAccountValue = parseFloat(crossMarginSummary.accountValue || "0");
+  
+  let perpEquity = marginAccountValue || crossAccountValue;
 
   let spotValue = 0;
   if (data?.spotState?.balances) {
@@ -68,12 +78,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
   
-  const withdrawable = parseFloat(clearinghouse.withdrawable || "0");
-  let totalAccountValue = perpEquity + spotValue;
-
-  if (perpEquity < withdrawable) {
-     totalAccountValue = Math.max(totalAccountValue, withdrawable + spotValue);
-  }
+  const totalAccountValue = perpEquity + spotValue;
 
   // 2. PRZETWARZANIE HISTORII TRANSAKCJI
   const fillsResponse = await fetch('https://api.hyperliquid.xyz/info', {
@@ -159,9 +164,11 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
 
           const startTime = currentBatch[0].time;
 
+          // Ścisłe przestrzeganie cutoffTimestamp
           if (endTime >= cutoffTimestamp) {
             const symbol = `${coin}-PERP`;
             
+            // Ignorujemy, jeśli symbol jest obecnie aktywny (nie dublujemy active positions historią z ostatnich minut)
             if (!activeSymbols.has(symbol) || endTime < (Date.now() - 60000)) {
                let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
                currentBatch.forEach(f => {

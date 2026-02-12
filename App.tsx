@@ -89,61 +89,106 @@ const App: React.FC = () => {
     if (!isAuto) setIsSyncing(true);
 
     try {
+      // Pobieramy dane. Jeśli historyStartDate jest w przyszłości, syncedTrades powinno być puste (dla zamkniętych).
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       const addrLower = wallet.address.trim().toLowerCase();
 
       setTrades(prevTrades => {
-        const metaCache = new Map<string, { notes: NoteEntry[], leverage: number, confidence: number }>();
+        // INCREMENTAL MERGE STRATEGY
+        // Zamiast kasować wszystko, aktualizujemy istniejące i dodajemy nowe.
+
+        // 1. Mapa nowych transakcji dla szybkiego dostępu
+        const incomingMap = new Map(syncedTrades.map(t => [t.externalId, t]));
         
+        // 2. Zidentyfikuj IDs transakcji, które są "ACTIVE" w odpowiedzi z API
+        // Służy to do usuwania pozycji, które zostały zamknięte (zniknęły z active positions).
+        const incomingActiveIds = new Set(
+          syncedTrades.filter(t => t.status === TradeStatus.OPEN && t.externalId).map(t => t.externalId)
+        );
+
+        // 3. Przetwórz istniejące transakcje (State)
+        const mergedTrades: Trade[] = [];
+        
+        // Przechowujemy ID, które już mamy w stanie, aby potem dodać tylko te w 100% nowe
+        const processedExternalIds = new Set<string>();
+
         prevTrades.forEach(t => {
-          if (t.externalId?.includes(addrLower) && t.externalId?.startsWith('hl-')) {
-             if (t.externalId) {
-                metaCache.set(t.externalId, { notes: t.notes, leverage: t.leverage, confidence: t.confidence });
+           // Jeśli to transakcja ręczna (bez externalId) -> ZACHOWAJ
+           if (!t.externalId) {
+             mergedTrades.push(t);
+             return;
+           }
+
+           // Jeśli to transakcja z innego portfela (inny adres w ID) -> ZACHOWAJ
+           if (!t.externalId.toLowerCase().includes(addrLower)) {
+             mergedTrades.push(t);
+             return;
+           }
+
+           // To jest transakcja z tego portfela (HL)
+           
+           // Sprawdź czy mamy świeżą wersję tej transakcji w incomingMap
+           const incomingTrade = incomingMap.get(t.externalId);
+
+           if (incomingTrade) {
+             // UPDATE: Mamy nowszą wersję tej samej transakcji.
+             // Zachowujemy notatki i confidence z lokalnego stanu, aktualizujemy liczby.
+             let finalLeverage = incomingTrade.leverage || t.leverage || 1;
+             
+             const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
+             
+             mergedTrades.push({
+               ...t, // zachowaj ID, notes, confidence
+               ...incomingTrade, // nadpisz dane z API
+               leverage: finalLeverage,
+               pnl,
+               pnlPercentage
+             } as Trade);
+             
+             processedExternalIds.add(t.externalId);
+           } else {
+             // BRAK w nowych danych.
+             
+             // A. Jeśli była to pozycja OTWARTA (OPEN), a nie ma jej w incomingActiveIds
+             // to znaczy, że została zamknięta (lub zlikwidowana) i powinna zniknąć z listy aktywnych.
+             // Zostanie ona dodana jako CLOSED jeśli jest w historii, lub usunięta jeśli API jeszcze nie zwróciło filli.
+             // W tym przypadku usuwamy "stale active position".
+             if (t.status === TradeStatus.OPEN) {
+                // Skip (usuń) - zostanie zastąpiona przez CLOSED z historii (jeśli API ją zwróci)
+                // lub zniknie chwilowo aż API zwróci fille.
+             } else {
+                // B. Jeśli to pozycja ZAMKNIĘTA (CLOSED) i nie ma jej w nowym wsadzie (bo np. filtr daty ją wyciął)
+                // to ZACHOWUJEMY ją (History Preservation).
+                mergedTrades.push(t);
+                processedExternalIds.add(t.externalId);
              }
-             if (t.status === TradeStatus.OPEN && t.symbol) {
-                metaCache.set(t.symbol, { notes: t.notes, leverage: t.leverage, confidence: t.confidence });
-             }
-          }
+           }
         });
 
-        const otherTrades = prevTrades.filter(t => {
-           if (!t.externalId) return true;
-           if (t.externalId.toLowerCase().includes(addrLower)) return false;
-           return true;
-        });
-
-        const newTrades: Trade[] = [];
-
+        // 4. Dodaj zupełnie nowe transakcje (których nie było w prevTrades)
         syncedTrades.forEach(st => {
-          let cached = st.externalId ? metaCache.get(st.externalId) : undefined;
-          
-          if (!cached && st.status === TradeStatus.OPEN && st.symbol) {
-             cached = metaCache.get(st.symbol);
-          }
+           if (st.externalId && !processedExternalIds.has(st.externalId)) {
+              // New Trade
+              const { pnl, pnlPercentage } = calculatePnl(st);
+              const noteDate = st.exitDate || st.date || new Date().toISOString();
+              const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
 
-          let finalLeverage = st.leverage || 1;
-          if (finalLeverage === 1 && cached?.leverage && cached.leverage > 1) {
-             finalLeverage = cached.leverage;
-          }
-
-          const { pnl, pnlPercentage } = calculatePnl({ ...st, leverage: finalLeverage });
-
-          const noteDate = st.exitDate || st.date || new Date().toISOString();
-          const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
-
-          newTrades.push({
-            ...st,
-            id: crypto.randomUUID(),
-            leverage: finalLeverage,
-            notes: cached?.notes || [{ id: crypto.randomUUID(), text: defaultNoteText, date: noteDate }],
-            confidence: cached?.confidence || 3,
-            pnl, 
-            pnlPercentage, 
-            initialRisk: 0
-          } as Trade);
+              mergedTrades.push({
+                ...st,
+                id: crypto.randomUUID(),
+                notes: [{ id: crypto.randomUUID(), text: defaultNoteText, date: noteDate }],
+                confidence: 3,
+                pnl,
+                pnlPercentage,
+                initialRisk: 0
+              } as Trade);
+           }
         });
 
-        const finalTradeList = [...newTrades, ...otherTrades];
+        // Sortowanie po dacie (najnowsze na górze)
+        mergedTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        const finalTradeList = mergedTrades;
         dataService.saveTrades(currentId, finalTradeList);
         return finalTradeList;
       });
