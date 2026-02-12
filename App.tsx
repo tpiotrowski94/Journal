@@ -33,6 +33,9 @@ const App: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Ref dla inputu pliku importu
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -90,7 +93,6 @@ const App: React.FC = () => {
       const addrLower = wallet.address.trim().toLowerCase();
 
       setTrades(prevTrades => {
-        // 1. Zapisz metadane (Notatki, Dźwignia)
         const metaCache = new Map<string, { notes: NoteEntry[], leverage: number, confidence: number }>();
         
         prevTrades.forEach(t => {
@@ -104,17 +106,12 @@ const App: React.FC = () => {
           }
         });
 
-        // 2. AGRESYWNE CZYSZCZENIE: Usuń WSZYSTKIE transakcje z tego portfela HL
-        // Używamy prostego sprawdzenia: jeśli externalId zawiera adres portfela (lowercase), to usuwamy.
         const otherTrades = prevTrades.filter(t => {
-           // Jeśli to trade manualny (brak externalId) -> zostaw
            if (!t.externalId) return true;
-           // Jeśli externalId zawiera adres tego portfela -> usuń (zastąpimy nowymi)
            if (t.externalId.toLowerCase().includes(addrLower)) return false;
            return true;
         });
 
-        // 3. Budujemy nową listę tylko z tego co zwróciło API (po filtrze daty w syncService)
         const newTrades: Trade[] = [];
 
         syncedTrades.forEach(st => {
@@ -131,7 +128,6 @@ const App: React.FC = () => {
 
           const { pnl, pnlPercentage } = calculatePnl({ ...st, leverage: finalLeverage });
 
-          // Data notatki - jeśli st.exitDate jest poprawny, używamy go, w przeciwnym razie data wejścia lub now()
           const noteDate = st.exitDate || st.date || new Date().toISOString();
           const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
 
@@ -239,8 +235,49 @@ const App: React.FC = () => {
     dataService.saveTrades(activeWalletId, updated);
   };
 
+  // Backup & Restore Handlers
+  const handleExportBackup = () => {
+    const data = dataService.exportFullBackup();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cryptojournal_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target?.result as string);
+        dataService.importFullBackup(json);
+        window.location.reload();
+      } catch (err) {
+        alert('Failed to import backup: Invalid file format.');
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-300 font-sans">
+      {/* Hidden File Input for Import */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleImportBackup} 
+        className="hidden" 
+        accept=".json"
+      />
+
       <div className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8">
         <header className="flex flex-col gap-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -254,7 +291,22 @@ const App: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <button 
+                onClick={() => fileInputRef.current?.click()} 
+                className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-700 hover:text-white"
+              >
+                <i className="fas fa-file-import"></i> Import
+              </button>
+              <button 
+                onClick={handleExportBackup} 
+                className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-700 hover:text-white"
+              >
+                <i className="fas fa-file-export"></i> Backup
+              </button>
+              
+              <div className="h-6 w-px bg-slate-800 mx-1 hidden md:block"></div>
+
               <button onClick={async () => {
                 setIsAnalyzing(true);
                 try { const res = await analyzeTrades(trades); setAiAnalysis(res); } 
@@ -369,6 +421,7 @@ const App: React.FC = () => {
                     setTrades(u); dataService.saveTrades(activeWalletId, u);
                   }}
                   walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-history"
+                  onExport={handleExportBackup}
                 />
                 
                 <Charts trades={trades} initialBalance={stats.initialBalance + (wallets.find(w => w.id === activeWalletId)?.balanceAdjustment || 0)} />
