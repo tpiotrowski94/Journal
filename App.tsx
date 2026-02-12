@@ -36,6 +36,33 @@ const App: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Funkcja pomocnicza do natychmiastowego czyszczenia starych transakcji przy ładowaniu
+  const loadAndPruneTrades = useCallback((walletId: string, currentWallets: Wallet[]) => {
+    const rawTrades = dataService.loadTrades(walletId);
+    const wallet = currentWallets.find(w => w.id === walletId);
+    
+    if (!wallet?.historyStartDate) {
+      return rawTrades;
+    }
+
+    const cutoff = new Date(wallet.historyStartDate).getTime();
+    if (isNaN(cutoff) || cutoff <= 0) {
+      return rawTrades;
+    }
+
+    // Natychmiastowe filtrowanie przy odczycie z dysku
+    return rawTrades.filter(t => {
+      // Jeśli to transakcja importowana (ma externalId) i jest starsza niż cutoff -> usuń
+      if (t.externalId) {
+        const tradeTime = new Date(t.exitDate || t.date).getTime();
+        if (tradeTime < cutoff) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, []);
+
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio) {
@@ -52,7 +79,8 @@ const App: React.FC = () => {
       setWallets(loadedWallets);
       const activeId = dataService.getActiveWalletId() || loadedWallets[0].id;
       setActiveWalletId(activeId);
-      setTrades(dataService.loadTrades(activeId));
+      // Używamy loadAndPrune zamiast surowego loadTrades
+      setTrades(loadAndPruneTrades(activeId, loadedWallets));
     } else {
       const defaultWallet: Wallet = {
         id: crypto.randomUUID(),
@@ -66,7 +94,7 @@ const App: React.FC = () => {
       dataService.saveWallets([defaultWallet]);
       dataService.setActiveWalletId(defaultWallet.id);
     }
-  }, []);
+  }, [loadAndPruneTrades]);
 
   const calculatePnl = useCallback((trade: Partial<Trade>) => {
     const entry = Number(trade.entryPrice) || 0, amount = Number(trade.amount) || 0;
@@ -91,7 +119,6 @@ const App: React.FC = () => {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       const addrLower = wallet.address.trim().toLowerCase();
 
-      // Timestamp odcięcia. Wszystko starsze niż to - USUWAMY.
       let pruneCutoffTime = 0;
       if (wallet.historyStartDate) {
         const parsed = new Date(wallet.historyStartDate).getTime();
@@ -121,16 +148,14 @@ const App: React.FC = () => {
            }
 
            // GLOBAL PRUNING CHECK
-           // Sprawdzamy datę JAKO PIERWSZĄ dla wszystkich transakcji importowanych (posiadających externalId).
-           // Jeśli transakcja jest starsza niż cutoff, usuwamy ją, niezależnie od tego czy pasuje do adresu czy nie.
            if (pruneCutoffTime > 0) {
               const tradeTime = new Date(t.exitDate || t.date).getTime();
               if (tradeTime < pruneCutoffTime) {
-                return; // DROP IT - To usuwa "zalegające" stare wpisy
+                return; // DROP IT
               }
            }
 
-           // B. Transakcje z innego portfela (adres nie pasuje, ale data jest OK) -> ZACHOWAJ
+           // B. Transakcje z innego portfela -> ZACHOWAJ
            if (!t.externalId.toLowerCase().includes(addrLower)) {
              mergedTrades.push(t);
              return;
@@ -140,7 +165,6 @@ const App: React.FC = () => {
            const incomingTrade = incomingMap.get(t.externalId);
 
            if (incomingTrade) {
-             // C1. UPDATE: Mamy nowsze dane z API -> Aktualizuj
              let finalLeverage = incomingTrade.leverage || t.leverage || 1;
              const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
              
@@ -154,13 +178,9 @@ const App: React.FC = () => {
              
              processedExternalIds.add(t.externalId);
            } else {
-             // C2. BRAK w nowym wsadzie (Orphan)
-             
              if (t.status === TradeStatus.OPEN) {
-                // Była otwarta, a teraz jej nie ma w API -> Usuwamy
-                return; 
+                return; // Live open pos not in API anymore -> Gone
              } else {
-                // Jest ZAMKNIĘTA lokalnie. Skoro przeszła check cutoff powyżej, zachowujemy ją.
                 mergedTrades.push(t);
                 processedExternalIds.add(t.externalId);
              }
@@ -194,27 +214,35 @@ const App: React.FC = () => {
         // --- ETAP 4: AKTUALIZACJA SALDA ---
         if (accountValue >= 0) {
             setWallets(prev => {
-                const newWallets = prev.map(w => {
-                    if (w.id === currentId) {
-                        const visibleTotalPnl = finalTradeList
-                            .filter(t => t.status === TradeStatus.CLOSED)
-                            .reduce((sum, t) => sum + (t.pnl || 0), 0);
+                const currentW = prev.find(w => w.id === currentId);
+                if (!currentW) return prev;
 
-                        // Initial = Equity - PnL
-                        // To gwarantuje, że Current Balance w Dashboardzie (Initial + PnL) = Equity z giełdy.
-                        const calculatedInitial = accountValue - visibleTotalPnl;
+                const visibleTotalPnl = finalTradeList
+                    .filter(t => t.status === TradeStatus.CLOSED)
+                    .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
-                        return {
-                            ...w,
-                            initialBalance: calculatedInitial,
-                            balanceAdjustment: 0,
-                            lastSyncAt: new Date().toISOString()
-                        };
-                    }
-                    return w;
-                });
-                dataService.saveWallets(newWallets);
-                return newWallets;
+                const calculatedInitial = accountValue - visibleTotalPnl;
+
+                // Sprawdzamy, czy zmiana jest istotna, aby unikać zbędnych re-renderów
+                // (np. różnica mniejsza niż 1 cent jest ignorowana, chyba że to pierwsze ustawienie)
+                const isDiff = Math.abs(currentW.initialBalance - calculatedInitial) > 0.01;
+
+                if (isDiff || currentW.balanceAdjustment !== 0) {
+                    const newWallets = prev.map(w => {
+                        if (w.id === currentId) {
+                            return {
+                                ...w,
+                                initialBalance: calculatedInitial,
+                                balanceAdjustment: 0,
+                                lastSyncAt: new Date().toISOString()
+                            };
+                        }
+                        return w;
+                    });
+                    dataService.saveWallets(newWallets);
+                    return newWallets;
+                }
+                return prev;
             });
         }
 
@@ -364,7 +392,14 @@ const App: React.FC = () => {
           <div className="border-b border-slate-800/50 pb-6">
             <WalletSwitcher 
               wallets={wallets} activeWalletId={activeWalletId} 
-              onSelect={(id) => { setActiveWalletId(id); dataService.setActiveWalletId(id); setTrades(dataService.loadTrades(id)); setAiAnalysis(null); }} 
+              onSelect={(id) => { 
+                setActiveWalletId(id); 
+                dataService.setActiveWalletId(id); 
+                // Kluczowa zmiana: Ładujemy i od razu filtrujemy (prune) transakcje, 
+                // aby nie było skoku salda przed syncem
+                setTrades(loadAndPruneTrades(id, wallets)); 
+                setAiAnalysis(null); 
+              }} 
               onAdd={() => {
                 const nw: Wallet = { id: crypto.randomUUID(), name: 'New Portfolio', provider: SyncProvider.MANUAL, initialBalance: 0, balanceAdjustment: 0 };
                 const updated = [...wallets, nw]; setWallets(updated); dataService.saveWallets(updated);
