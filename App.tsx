@@ -99,7 +99,7 @@ const App: React.FC = () => {
       }
 
       setTrades(prevTrades => {
-        // --- ETAP 1: FILTERING (Sanity Check) ---
+        // --- ETAP 1: FILTERING (Sanity Check dla nowych danych) ---
         const validNewTrades = syncedTrades.filter(t => {
            if (!pruneCutoffTime) return true;
            const tTime = new Date(t.exitDate || t.date || 0).getTime();
@@ -114,26 +114,29 @@ const App: React.FC = () => {
 
         // --- ETAP 2: PRZETWARZANIE LOKALNEGO STANU ---
         prevTrades.forEach(t => {
-           // A. Transakcje ręczne -> ZACHOWAJ
+           // A. Transakcje ręczne -> ZACHOWAJ BEZWARUNKOWO
            if (!t.externalId) {
              mergedTrades.push(t);
              return;
            }
 
-           // B. Transakcje z innego portfela -> ZACHOWAJ
+           // GLOBAL PRUNING CHECK
+           // Sprawdzamy datę JAKO PIERWSZĄ dla wszystkich transakcji importowanych (posiadających externalId).
+           // Jeśli transakcja jest starsza niż cutoff, usuwamy ją, niezależnie od tego czy pasuje do adresu czy nie.
+           if (pruneCutoffTime > 0) {
+              const tradeTime = new Date(t.exitDate || t.date).getTime();
+              if (tradeTime < pruneCutoffTime) {
+                return; // DROP IT - To usuwa "zalegające" stare wpisy
+              }
+           }
+
+           // B. Transakcje z innego portfela (adres nie pasuje, ale data jest OK) -> ZACHOWAJ
            if (!t.externalId.toLowerCase().includes(addrLower)) {
              mergedTrades.push(t);
              return;
            }
 
            // C. Transakcje HL z tego portfela
-           
-           // SPRAWDZENIE CUTOFF: Jeśli lokalna transakcja jest starsza niż data odcięcia -> USUŃ JĄ.
-           const tradeTime = new Date(t.exitDate || t.date).getTime();
-           if (pruneCutoffTime > 0 && tradeTime < pruneCutoffTime) {
-             return; // DROP IT
-           }
-
            const incomingTrade = incomingMap.get(t.externalId);
 
            if (incomingTrade) {
@@ -154,7 +157,7 @@ const App: React.FC = () => {
              // C2. BRAK w nowym wsadzie (Orphan)
              
              if (t.status === TradeStatus.OPEN) {
-                // Była otwarta, a teraz jej nie ma w API -> Usuwamy (zostanie zastąpiona przez historyczny wpis jeśli się pojawi, lub zniknie)
+                // Była otwarta, a teraz jej nie ma w API -> Usuwamy
                 return; 
              } else {
                 // Jest ZAMKNIĘTA lokalnie. Skoro przeszła check cutoff powyżej, zachowujemy ją.
@@ -198,6 +201,7 @@ const App: React.FC = () => {
                             .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
                         // Initial = Equity - PnL
+                        // To gwarantuje, że Current Balance w Dashboardzie (Initial + PnL) = Equity z giełdy.
                         const calculatedInitial = accountValue - visibleTotalPnl;
 
                         return {
