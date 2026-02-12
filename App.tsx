@@ -34,7 +34,6 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Ref dla inputu pliku importu
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -89,32 +88,31 @@ const App: React.FC = () => {
     if (!isAuto) setIsSyncing(true);
 
     try {
-      // 1. Pobieranie danych z API
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       const addrLower = wallet.address.trim().toLowerCase();
 
-      // Obliczamy timestamp odcięcia, aby użyć go do filtrowania STARYCH (już zapisanych) transakcji
+      // Timestamp odcięcia. Wszystko starsze niż to - USUWAMY.
       let pruneCutoffTime = 0;
       if (wallet.historyStartDate) {
         const parsed = new Date(wallet.historyStartDate).getTime();
-        if (!isNaN(parsed)) pruneCutoffTime = parsed;
+        if (!isNaN(parsed) && parsed > 0) pruneCutoffTime = parsed;
       }
 
       setTrades(prevTrades => {
-        // INCREMENTAL MERGE STRATEGY Z PRUNINGIEM
-        
-        // Mapa nowych transakcji dla szybkiego dostępu (O(1))
-        const incomingMap = new Map(syncedTrades.map(t => [t.externalId, t]));
-        
-        // Zbiór ID transakcji aktywnych w obecnym wsadzie z API
-        const incomingActiveIds = new Set(
-          syncedTrades.filter(t => t.status === TradeStatus.OPEN && t.externalId).map(t => t.externalId)
-        );
+        // --- ETAP 1: FILTERING (Sanity Check) ---
+        const validNewTrades = syncedTrades.filter(t => {
+           if (!pruneCutoffTime) return true;
+           const tTime = new Date(t.exitDate || t.date || 0).getTime();
+           return tTime >= pruneCutoffTime;
+        });
 
+        // Mapa nowych transakcji
+        const incomingMap = new Map(validNewTrades.map(t => [t.externalId, t]));
+        
         const mergedTrades: Trade[] = [];
         const processedExternalIds = new Set<string>();
 
-        // KROK 1: Przetwórz istniejące transakcje (Local State)
+        // --- ETAP 2: PRZETWARZANIE LOKALNEGO STANU ---
         prevTrades.forEach(t => {
            // A. Transakcje ręczne -> ZACHOWAJ
            if (!t.externalId) {
@@ -122,23 +120,30 @@ const App: React.FC = () => {
              return;
            }
 
-           // B. Transakcje z innego portfela (jeśli jakimś cudem są w tym stanie) -> ZACHOWAJ
+           // B. Transakcje z innego portfela -> ZACHOWAJ
            if (!t.externalId.toLowerCase().includes(addrLower)) {
              mergedTrades.push(t);
              return;
            }
 
            // C. Transakcje HL z tego portfela
+           
+           // SPRAWDZENIE CUTOFF: Jeśli lokalna transakcja jest starsza niż data odcięcia -> USUŃ JĄ.
+           const tradeTime = new Date(t.exitDate || t.date).getTime();
+           if (pruneCutoffTime > 0 && tradeTime < pruneCutoffTime) {
+             return; // DROP IT
+           }
+
            const incomingTrade = incomingMap.get(t.externalId);
 
            if (incomingTrade) {
-             // C1. UPDATE: Transakcja jest w nowym wsadzie -> Aktualizuj dane
+             // C1. UPDATE: Mamy nowsze dane z API -> Aktualizuj
              let finalLeverage = incomingTrade.leverage || t.leverage || 1;
              const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
              
              mergedTrades.push({
-               ...t, // zachowaj ID, notes, confidence
-               ...incomingTrade, // nadpisz dane live
+               ...t, 
+               ...incomingTrade,
                leverage: finalLeverage,
                pnl,
                pnlPercentage
@@ -146,37 +151,22 @@ const App: React.FC = () => {
              
              processedExternalIds.add(t.externalId);
            } else {
-             // C2. BRAK w nowym wsadzie -> Sprawdź czy usunąć (Pruning) czy zachować (History)
+             // C2. BRAK w nowym wsadzie (Orphan)
              
              if (t.status === TradeStatus.OPEN) {
-                // Jeśli pozycja była OTWARTA, a nie ma jej w incomingActiveIds -> Została zamknięta/zlikwidowana.
-                // Usuwamy ją (zostanie zastąpiona przez CLOSED w następnym kroku, jeśli API zwróci historię, 
-                // lub zniknie jeśli filtr daty ją wycina).
+                // Była otwarta, a teraz jej nie ma w API -> Usuwamy (zostanie zastąpiona przez historyczny wpis jeśli się pojawi, lub zniknie)
                 return; 
              } else {
-                // Jeśli pozycja jest ZAMKNIĘTA, a nie ma jej w API (bo np. API zwraca tylko 30 dni)
-                // TO MOMENT NA SPRAWDZENIE CUTOFF DATE
-                const tradeTime = new Date(t.exitDate || t.date).getTime();
-                
-                // CRITICAL FIX: Jeśli użytkownik ustawił datę graniczną, a ta transakcja jest starsza -> USUŃ JĄ.
-                if (pruneCutoffTime > 0 && tradeTime < pruneCutoffTime) {
-                  return; // Usuwamy staroć
-                }
-
-                // W przeciwnym razie zachowujemy jako historię
+                // Jest ZAMKNIĘTA lokalnie. Skoro przeszła check cutoff powyżej, zachowujemy ją.
                 mergedTrades.push(t);
                 processedExternalIds.add(t.externalId);
              }
            }
         });
 
-        // KROK 2: Dodaj zupełnie nowe transakcje (których nie było w prevTrades)
-        syncedTrades.forEach(st => {
+        // --- ETAP 3: DODAWANIE NOWYCH ---
+        validNewTrades.forEach(st => {
            if (st.externalId && !processedExternalIds.has(st.externalId)) {
-              // Dodatkowe sprawdzenie daty dla pewności (choć syncService też to robi)
-              const tradeTime = new Date(st.exitDate || st.date || 0).getTime();
-              if (pruneCutoffTime > 0 && tradeTime < pruneCutoffTime) return;
-
               const { pnl, pnlPercentage } = calculatePnl(st);
               const noteDate = st.exitDate || st.date || new Date().toISOString();
               const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
@@ -193,45 +183,40 @@ const App: React.FC = () => {
            }
         });
 
-        // Sortowanie: Najnowsze na górze
         mergedTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
         const finalTradeList = mergedTrades;
         dataService.saveTrades(currentId, finalTradeList);
+
+        // --- ETAP 4: AKTUALIZACJA SALDA ---
+        if (accountValue >= 0) {
+            setWallets(prev => {
+                const newWallets = prev.map(w => {
+                    if (w.id === currentId) {
+                        const visibleTotalPnl = finalTradeList
+                            .filter(t => t.status === TradeStatus.CLOSED)
+                            .reduce((sum, t) => sum + (t.pnl || 0), 0);
+
+                        // Initial = Equity - PnL
+                        const calculatedInitial = accountValue - visibleTotalPnl;
+
+                        return {
+                            ...w,
+                            initialBalance: calculatedInitial,
+                            balanceAdjustment: 0,
+                            lastSyncAt: new Date().toISOString()
+                        };
+                    }
+                    return w;
+                });
+                dataService.saveWallets(newWallets);
+                return newWallets;
+            });
+        }
+
         return finalTradeList;
       });
 
-      // Aktualizacja salda portfela
-      if (accountValue > 0) {
-        setWallets(prev => {
-          const newWallets = prev.map(w => {
-            if (w.id === currentId) {
-              const totalClosedPnl = syncedTrades
-                .filter(t => t.status === TradeStatus.CLOSED)
-                .reduce((sum, t) => {
-                   const { pnl } = calculatePnl(t);
-                   return sum + pnl;
-                }, 0);
-
-              let baseBalance = w.initialBalance;
-              if (baseBalance === 0) {
-                baseBalance = accountValue - totalClosedPnl;
-              }
-              const neededAdj = accountValue - (baseBalance + totalClosedPnl);
-              
-              return { 
-                ...w, 
-                initialBalance: baseBalance, 
-                balanceAdjustment: neededAdj, 
-                lastSyncAt: new Date().toISOString() 
-              };
-            }
-            return w;
-          });
-          dataService.saveWallets(newWallets);
-          return newWallets;
-        });
-      }
     } catch (error) {
       console.error("Sync error:", error);
     } finally {
@@ -289,7 +274,6 @@ const App: React.FC = () => {
     dataService.saveTrades(activeWalletId, updated);
   };
 
-  // Backup & Restore Handlers
   const handleExportBackup = () => {
     const data = dataService.exportFullBackup();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -323,7 +307,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-300 font-sans">
-      {/* Hidden File Input for Import */}
       <input 
         type="file" 
         ref={fileInputRef} 

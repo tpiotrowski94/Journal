@@ -9,43 +9,57 @@ export interface SyncResult {
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
   const userAddr = address.trim().toLowerCase();
   
-  // Cutoff handling:
-  // Jeśli podano historyCutoff, używamy go. Jeśli nie, domyślnie 30 dni wstecz.
-  // Upewniamy się, że timestamp jest liczbą.
+  if (!userAddr) {
+    throw new Error("Wallet address is required");
+  }
+
+  // Cutoff handling - Strict
+  // Default to 30 days ago if no date provided
   let cutoffTimestamp = Date.now() - (86400000 * 30);
+  
   if (historyCutoff) {
     const parsed = new Date(historyCutoff).getTime();
-    if (!isNaN(parsed)) {
+    if (!isNaN(parsed) && parsed > 0) {
       cutoffTimestamp = parsed;
     }
   }
 
-  const [webDataResponse, midsResponse] = await Promise.all([
-    fetch('https://api.hyperliquid.xyz/info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: "webData2", user: userAddr })
-    }),
-    fetch('https://api.hyperliquid.xyz/info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: "allMids" })
-    })
-  ]);
-  
-  if (!webDataResponse.ok) throw new Error("Failed to fetch HL data");
+  // Rozdzielamy zapytania, aby błąd w mids nie kładł całości
+  const webDataPromise = fetch('https://api.hyperliquid.xyz/info', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: "webData2", user: userAddr })
+  });
+
+  const midsPromise = fetch('https://api.hyperliquid.xyz/info', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: "allMids" })
+  });
+
+  // Oczekujemy na kluczowe dane (webData2)
+  let webDataResponse;
+  try {
+    webDataResponse = await webDataPromise;
+  } catch (e) {
+    throw new Error("Network error fetching Hyperliquid data");
+  }
+
+  if (!webDataResponse.ok) {
+    throw new Error(`HL API Error: ${webDataResponse.statusText}`);
+  }
   
   const data = await webDataResponse.json();
   
-  // Zabezpieczenie przed błędem null w allMids
+  // Dane pomocnicze (mids) - non-critical
   let mids: Record<string, any> = {};
   try {
+    const midsResponse = await midsPromise;
     if (midsResponse.ok) {
-      const json = await midsResponse.json();
-      if (json) mids = json;
+      mids = await midsResponse.json();
     }
   } catch (e) {
-    console.warn("Failed to load mids", e);
+    console.warn("Failed to fetch mids, spot balances might be inaccurate", e);
   }
 
   // 1. OBLICZANIE WARTOŚCI KONTA
@@ -53,11 +67,10 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   const marginSummary = clearinghouse.marginSummary || {};
   const crossMarginSummary = clearinghouse.crossMarginSummary || {};
 
-  // FIX: Wcześniej używano Math.max z totalMarginEquity. 
-  const marginAccountValue = parseFloat(marginSummary.accountValue || "0");
-  const crossAccountValue = parseFloat(crossMarginSummary.accountValue || "0");
+  const marginAccountValue = parseFloat(marginSummary.accountValue) || 0;
+  const crossAccountValue = parseFloat(crossMarginSummary.accountValue) || 0;
   
-  let perpEquity = marginAccountValue || crossAccountValue;
+  let perpEquity = Math.max(marginAccountValue, crossAccountValue);
 
   let spotValue = 0;
   if (data?.spotState?.balances) {
@@ -67,7 +80,6 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         if (b.coin === 'USDC' || b.coin === 'USDT' || b.coin === 'USD') {
           spotValue += balance;
         } else {
-          // Safe access to mids
           const coinPrice = mids[b.coin] || mids[`${b.coin}-SPOT`] || "0";
           const price = parseFloat(coinPrice);
           if (price > 0) {
@@ -86,6 +98,12 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: "userFills", user: userAddr })
   });
+
+  if (!fillsResponse.ok) {
+     console.warn("Failed to fetch userFills");
+     return { trades: [], accountValue: totalAccountValue };
+  }
+
   const fills = await fillsResponse.json();
 
   const syncedTrades: Partial<Trade>[] = [];
@@ -137,11 +155,9 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       let currentBatch: any[] = [];
       
       sorted.forEach((fill) => {
-        // DETEKCJA SIEROT (Orphans)
         const hasRealizedPnl = parseFloat(fill.closedPnl || "0") !== 0;
-        const isStartOfBatch = currentBatch.length === 0 && Math.abs(currentPositionSize) < 0.000001;
-
-        if (isStartOfBatch && hasRealizedPnl) {
+        // Pomiń sieroty na początku, które mają PnL (część wcześniejszej transakcji)
+        if (currentBatch.length === 0 && Math.abs(currentPositionSize) < 0.000001 && hasRealizedPnl) {
            return;
         }
 
@@ -160,49 +176,49 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
 
         if (isClose || isFlip) {
           const endTime = fill.time;
-          if (currentBatch.length === 0) return;
+          
+          if (currentBatch.length > 0) {
+            const startTime = currentBatch[0].time;
 
-          const startTime = currentBatch[0].time;
-
-          // Ścisłe przestrzeganie cutoffTimestamp
-          if (endTime >= cutoffTimestamp) {
-            const symbol = `${coin}-PERP`;
-            
-            // Ignorujemy, jeśli symbol jest obecnie aktywny (nie dublujemy active positions historią z ostatnich minut)
-            if (!activeSymbols.has(symbol) || endTime < (Date.now() - 60000)) {
-               let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
-               currentBatch.forEach(f => {
-                 const fPx = parseFloat(f.px), fSz = parseFloat(f.sz), fFee = parseFloat(f.fee);
-                 feesTotal += fFee;
-                 if (f.side === 'B') { bSz += fSz; bVol += (fPx * fSz); }
-                 else { sSz += fSz; sVol += (fPx * fSz); }
-               });
-
-               const tradeType = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
-               const entryPrice = tradeType === TradeType.LONG ? (bVol / bSz) : (sVol / sSz);
-               const exitPrice = tradeType === TradeType.LONG ? (sVol / sSz) : (bVol / bSz);
-               const amount = tradeType === TradeType.LONG ? bSz : sSz;
-               
-               const settings = leverageMap.get(coin) || { leverage: 1, marginMode: MarginMode.ISOLATED };
-
-               if (amount > 0 && isFinite(entryPrice) && isFinite(exitPrice)) {
-                 syncedTrades.push({
-                   externalId: `hl-closed-${userAddr}-${coin}-${startTime}-${endTime}`,
-                   symbol,
-                   type: tradeType,
-                   entryPrice,
-                   exitPrice,
-                   amount,
-                   fees: feesTotal,
-                   fundingFees: 0,
-                   date: new Date(startTime).toISOString(),
-                   exitDate: new Date(endTime).toISOString(),
-                   status: TradeStatus.CLOSED,
-                   leverage: settings.leverage,
-                   marginMode: settings.marginMode,
-                   confidence: 3
+            // Strict Cutoff Check
+            if (endTime >= cutoffTimestamp) {
+              const symbol = `${coin}-PERP`;
+              
+              if (!activeSymbols.has(symbol) || endTime < (Date.now() - 60000)) {
+                 let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
+                 currentBatch.forEach(f => {
+                   const fPx = parseFloat(f.px), fSz = parseFloat(f.sz), fFee = parseFloat(f.fee);
+                   feesTotal += fFee;
+                   if (f.side === 'B') { bSz += fSz; bVol += (fPx * fSz); }
+                   else { sSz += fSz; sVol += (fPx * fSz); }
                  });
-               }
+
+                 const tradeType = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
+                 const entryPrice = tradeType === TradeType.LONG ? (bVol / bSz) : (sVol / sSz);
+                 const exitPrice = tradeType === TradeType.LONG ? (sVol / sSz) : (bVol / bSz);
+                 const amount = tradeType === TradeType.LONG ? bSz : sSz;
+                 
+                 const settings = leverageMap.get(coin) || { leverage: 1, marginMode: MarginMode.ISOLATED };
+
+                 if (amount > 0 && isFinite(entryPrice) && isFinite(exitPrice)) {
+                   syncedTrades.push({
+                     externalId: `hl-closed-${userAddr}-${coin}-${startTime}-${endTime}`,
+                     symbol,
+                     type: tradeType,
+                     entryPrice,
+                     exitPrice,
+                     amount,
+                     fees: feesTotal,
+                     fundingFees: 0,
+                     date: new Date(startTime).toISOString(),
+                     exitDate: new Date(endTime).toISOString(),
+                     status: TradeStatus.CLOSED,
+                     leverage: settings.leverage,
+                     marginMode: settings.marginMode,
+                     confidence: 3
+                   });
+                 }
+              }
             }
           }
 
