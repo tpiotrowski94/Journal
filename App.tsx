@@ -89,75 +89,86 @@ const App: React.FC = () => {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       const addrLower = wallet.address.trim().toLowerCase();
 
-      let updatedTrades: Trade[] = [];
       setTrades(prevTrades => {
-        // Cache meta data from existing trades to preserve Leverage and Notes for closed positions
+        // 1. Zapisz metadane (Notatki, Dźwignia)
         const metaCache = new Map<string, { notes: NoteEntry[], leverage: number, confidence: number }>();
+        
         prevTrades.forEach(t => {
-          if (t.symbol) {
-             // We prioritize preserving leverage if it was > 1
-             const existing = metaCache.get(t.symbol);
-             const betterLeverage = t.leverage > 1 ? t.leverage : (existing?.leverage || 1);
-             metaCache.set(t.symbol, { 
-               notes: t.notes, 
-               leverage: betterLeverage, 
-               confidence: t.confidence 
-             });
+          if (t.externalId?.includes(addrLower) && t.externalId?.startsWith('hl-')) {
+             if (t.externalId) {
+                metaCache.set(t.externalId, { notes: t.notes, leverage: t.leverage, confidence: t.confidence });
+             }
+             if (t.status === TradeStatus.OPEN && t.symbol) {
+                metaCache.set(t.symbol, { notes: t.notes, leverage: t.leverage, confidence: t.confidence });
+             }
           }
         });
 
-        const filtered = prevTrades.filter(t => {
-          const isOurActive = t.status === TradeStatus.OPEN && t.externalId?.includes(`hl-active-`) && t.externalId?.includes(addrLower);
-          return !isOurActive;
+        // 2. AGRESYWNE CZYSZCZENIE: Usuń WSZYSTKIE transakcje z tego portfela HL
+        // Używamy prostego sprawdzenia: jeśli externalId zawiera adres portfela (lowercase), to usuwamy.
+        const otherTrades = prevTrades.filter(t => {
+           // Jeśli to trade manualny (brak externalId) -> zostaw
+           if (!t.externalId) return true;
+           // Jeśli externalId zawiera adres tego portfela -> usuń (zastąpimy nowymi)
+           if (t.externalId.toLowerCase().includes(addrLower)) return false;
+           return true;
         });
 
-        const existingClosedIds = new Set(filtered.filter(t => t.status === TradeStatus.CLOSED).map(t => t.externalId));
-        const finalNewTrades: Trade[] = [];
+        // 3. Budujemy nową listę tylko z tego co zwróciło API (po filtrze daty w syncService)
+        const newTrades: Trade[] = [];
 
         syncedTrades.forEach(st => {
-          const symbol = st.symbol || '';
-          const cached = metaCache.get(symbol);
-
-          // Fix leverage for closed trades: if API returned 1 but we remember it was higher, use cached
-          if (st.leverage === 1 && cached?.leverage && cached.leverage > 1) {
-            st.leverage = cached.leverage;
+          let cached = st.externalId ? metaCache.get(st.externalId) : undefined;
+          
+          if (!cached && st.status === TradeStatus.OPEN && st.symbol) {
+             cached = metaCache.get(st.symbol);
           }
 
-          if (st.status === TradeStatus.OPEN) {
-            finalNewTrades.push({
-              ...st,
-              id: crypto.randomUUID(),
-              notes: cached?.notes || [{ id: crypto.randomUUID(), text: 'Live position from HL', date: new Date().toISOString() }],
-              confidence: cached?.confidence || 3,
-              pnl: 0, pnlPercentage: 0, initialRisk: 0
-            } as Trade);
-          } else if (st.status === TradeStatus.CLOSED && !existingClosedIds.has(st.externalId)) {
-            const { pnl, pnlPercentage } = calculatePnl(st);
-            finalNewTrades.push({
-              ...st,
-              id: crypto.randomUUID(),
-              notes: cached?.notes || [{ id: crypto.randomUUID(), text: 'Imported history', date: st.exitDate || new Date().toISOString() }],
-              confidence: cached?.confidence || 3,
-              pnl, pnlPercentage, initialRisk: 0
-            } as Trade);
+          let finalLeverage = st.leverage || 1;
+          if (finalLeverage === 1 && cached?.leverage && cached.leverage > 1) {
+             finalLeverage = cached.leverage;
           }
+
+          const { pnl, pnlPercentage } = calculatePnl({ ...st, leverage: finalLeverage });
+
+          // Data notatki - jeśli st.exitDate jest poprawny, używamy go, w przeciwnym razie data wejścia lub now()
+          const noteDate = st.exitDate || st.date || new Date().toISOString();
+          const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
+
+          newTrades.push({
+            ...st,
+            id: crypto.randomUUID(),
+            leverage: finalLeverage,
+            notes: cached?.notes || [{ id: crypto.randomUUID(), text: defaultNoteText, date: noteDate }],
+            confidence: cached?.confidence || 3,
+            pnl, 
+            pnlPercentage, 
+            initialRisk: 0
+          } as Trade);
         });
 
-        updatedTrades = [...finalNewTrades, ...filtered];
-        dataService.saveTrades(currentId, updatedTrades);
-        return updatedTrades;
+        const finalTradeList = [...newTrades, ...otherTrades];
+        dataService.saveTrades(currentId, finalTradeList);
+        return finalTradeList;
       });
 
       if (accountValue > 0) {
         setWallets(prev => {
           const newWallets = prev.map(w => {
             if (w.id === currentId) {
-              const totalClosedPnl = updatedTrades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
+              const totalClosedPnl = syncedTrades
+                .filter(t => t.status === TradeStatus.CLOSED)
+                .reduce((sum, t) => {
+                   const { pnl } = calculatePnl(t);
+                   return sum + pnl;
+                }, 0);
+
               let baseBalance = w.initialBalance;
               if (baseBalance === 0) {
                 baseBalance = accountValue - totalClosedPnl;
               }
               const neededAdj = accountValue - (baseBalance + totalClosedPnl);
+              
               return { 
                 ...w, 
                 initialBalance: baseBalance, 
@@ -178,20 +189,13 @@ const App: React.FC = () => {
     }
   }, [wallets, isSyncing, calculatePnl]);
 
-  // Aggressive Auto-Sync (15 seconds) for Hyperliquid wallets to catch leverage before close
   const activeWallet = wallets.find(w => w.id === activeWalletId);
   const autoSyncEnabled = activeWallet?.autoSync && activeWallet?.provider === SyncProvider.HYPERLIQUID;
 
   useEffect(() => {
     if (!autoSyncEnabled) return;
-    
-    // Initial sync on mount/enable
     handleSyncWallet(true);
-
-    const timer = setInterval(() => {
-      handleSyncWallet(true);
-    }, 15000); // 15 seconds interval
-
+    const timer = setInterval(() => { handleSyncWallet(true); }, 15000);
     return () => clearInterval(timer);
   }, [autoSyncEnabled, handleSyncWallet]);
 
@@ -264,7 +268,6 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Wallet Switcher moved to a separate row for clarity */}
           <div className="border-b border-slate-800/50 pb-6">
             <WalletSwitcher 
               wallets={wallets} activeWalletId={activeWalletId} 
@@ -308,16 +311,13 @@ const App: React.FC = () => {
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Lewa kolumna: Formularz i Kalkulatory */}
               <div className="lg:col-span-4 space-y-8">
                 <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
                 <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
                 <DcaCalculator />
               </div>
 
-              {/* Prawa kolumna: Tabele razem na górze, potem wizualizacje */}
               <div className="lg:col-span-8 space-y-8">
-                {/* 1. Aktywne Pozycje */}
                 <TradeTable 
                   title="Active Positions" trades={trades.filter(t => t.status === TradeStatus.OPEN)} status={TradeStatus.OPEN}
                   onDelete={(id) => { const u = trades.filter(t => t.id !== id); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
@@ -349,7 +349,6 @@ const App: React.FC = () => {
                   walletBalance={stats.currentBalance} accentColor="blue" icon="fa-bolt"
                 />
 
-                {/* 2. Historia Pozycji (bezpośrednio pod aktywnymi) */}
                 <TradeTable 
                   title="Trade History" trades={trades.filter(t => t.status === TradeStatus.CLOSED)} status={TradeStatus.CLOSED}
                   onDelete={(id) => { const u = trades.filter(t => t.id !== id); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
@@ -372,7 +371,6 @@ const App: React.FC = () => {
                   walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-history"
                 />
                 
-                {/* 3. Wykresy i Kalendarz na dole */}
                 <Charts trades={trades} initialBalance={stats.initialBalance + (wallets.find(w => w.id === activeWalletId)?.balanceAdjustment || 0)} />
                 <PnLCalendar trades={trades} portfolioEquity={stats.initialBalance} />
               </div>
