@@ -89,57 +89,56 @@ const App: React.FC = () => {
     if (!isAuto) setIsSyncing(true);
 
     try {
-      // Pobieramy dane. Jeśli historyStartDate jest w przyszłości, syncedTrades powinno być puste (dla zamkniętych).
+      // 1. Pobieranie danych z API
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
       const addrLower = wallet.address.trim().toLowerCase();
 
-      setTrades(prevTrades => {
-        // INCREMENTAL MERGE STRATEGY
-        // Zamiast kasować wszystko, aktualizujemy istniejące i dodajemy nowe.
+      // Obliczamy timestamp odcięcia, aby użyć go do filtrowania STARYCH (już zapisanych) transakcji
+      let pruneCutoffTime = 0;
+      if (wallet.historyStartDate) {
+        const parsed = new Date(wallet.historyStartDate).getTime();
+        if (!isNaN(parsed)) pruneCutoffTime = parsed;
+      }
 
-        // 1. Mapa nowych transakcji dla szybkiego dostępu
+      setTrades(prevTrades => {
+        // INCREMENTAL MERGE STRATEGY Z PRUNINGIEM
+        
+        // Mapa nowych transakcji dla szybkiego dostępu (O(1))
         const incomingMap = new Map(syncedTrades.map(t => [t.externalId, t]));
         
-        // 2. Zidentyfikuj IDs transakcji, które są "ACTIVE" w odpowiedzi z API
-        // Służy to do usuwania pozycji, które zostały zamknięte (zniknęły z active positions).
+        // Zbiór ID transakcji aktywnych w obecnym wsadzie z API
         const incomingActiveIds = new Set(
           syncedTrades.filter(t => t.status === TradeStatus.OPEN && t.externalId).map(t => t.externalId)
         );
 
-        // 3. Przetwórz istniejące transakcje (State)
         const mergedTrades: Trade[] = [];
-        
-        // Przechowujemy ID, które już mamy w stanie, aby potem dodać tylko te w 100% nowe
         const processedExternalIds = new Set<string>();
 
+        // KROK 1: Przetwórz istniejące transakcje (Local State)
         prevTrades.forEach(t => {
-           // Jeśli to transakcja ręczna (bez externalId) -> ZACHOWAJ
+           // A. Transakcje ręczne -> ZACHOWAJ
            if (!t.externalId) {
              mergedTrades.push(t);
              return;
            }
 
-           // Jeśli to transakcja z innego portfela (inny adres w ID) -> ZACHOWAJ
+           // B. Transakcje z innego portfela (jeśli jakimś cudem są w tym stanie) -> ZACHOWAJ
            if (!t.externalId.toLowerCase().includes(addrLower)) {
              mergedTrades.push(t);
              return;
            }
 
-           // To jest transakcja z tego portfela (HL)
-           
-           // Sprawdź czy mamy świeżą wersję tej transakcji w incomingMap
+           // C. Transakcje HL z tego portfela
            const incomingTrade = incomingMap.get(t.externalId);
 
            if (incomingTrade) {
-             // UPDATE: Mamy nowszą wersję tej samej transakcji.
-             // Zachowujemy notatki i confidence z lokalnego stanu, aktualizujemy liczby.
+             // C1. UPDATE: Transakcja jest w nowym wsadzie -> Aktualizuj dane
              let finalLeverage = incomingTrade.leverage || t.leverage || 1;
-             
              const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
              
              mergedTrades.push({
                ...t, // zachowaj ID, notes, confidence
-               ...incomingTrade, // nadpisz dane z API
+               ...incomingTrade, // nadpisz dane live
                leverage: finalLeverage,
                pnl,
                pnlPercentage
@@ -147,28 +146,37 @@ const App: React.FC = () => {
              
              processedExternalIds.add(t.externalId);
            } else {
-             // BRAK w nowych danych.
+             // C2. BRAK w nowym wsadzie -> Sprawdź czy usunąć (Pruning) czy zachować (History)
              
-             // A. Jeśli była to pozycja OTWARTA (OPEN), a nie ma jej w incomingActiveIds
-             // to znaczy, że została zamknięta (lub zlikwidowana) i powinna zniknąć z listy aktywnych.
-             // Zostanie ona dodana jako CLOSED jeśli jest w historii, lub usunięta jeśli API jeszcze nie zwróciło filli.
-             // W tym przypadku usuwamy "stale active position".
              if (t.status === TradeStatus.OPEN) {
-                // Skip (usuń) - zostanie zastąpiona przez CLOSED z historii (jeśli API ją zwróci)
-                // lub zniknie chwilowo aż API zwróci fille.
+                // Jeśli pozycja była OTWARTA, a nie ma jej w incomingActiveIds -> Została zamknięta/zlikwidowana.
+                // Usuwamy ją (zostanie zastąpiona przez CLOSED w następnym kroku, jeśli API zwróci historię, 
+                // lub zniknie jeśli filtr daty ją wycina).
+                return; 
              } else {
-                // B. Jeśli to pozycja ZAMKNIĘTA (CLOSED) i nie ma jej w nowym wsadzie (bo np. filtr daty ją wyciął)
-                // to ZACHOWUJEMY ją (History Preservation).
+                // Jeśli pozycja jest ZAMKNIĘTA, a nie ma jej w API (bo np. API zwraca tylko 30 dni)
+                // TO MOMENT NA SPRAWDZENIE CUTOFF DATE
+                const tradeTime = new Date(t.exitDate || t.date).getTime();
+                
+                // CRITICAL FIX: Jeśli użytkownik ustawił datę graniczną, a ta transakcja jest starsza -> USUŃ JĄ.
+                if (pruneCutoffTime > 0 && tradeTime < pruneCutoffTime) {
+                  return; // Usuwamy staroć
+                }
+
+                // W przeciwnym razie zachowujemy jako historię
                 mergedTrades.push(t);
                 processedExternalIds.add(t.externalId);
              }
            }
         });
 
-        // 4. Dodaj zupełnie nowe transakcje (których nie było w prevTrades)
+        // KROK 2: Dodaj zupełnie nowe transakcje (których nie było w prevTrades)
         syncedTrades.forEach(st => {
            if (st.externalId && !processedExternalIds.has(st.externalId)) {
-              // New Trade
+              // Dodatkowe sprawdzenie daty dla pewności (choć syncService też to robi)
+              const tradeTime = new Date(st.exitDate || st.date || 0).getTime();
+              if (pruneCutoffTime > 0 && tradeTime < pruneCutoffTime) return;
+
               const { pnl, pnlPercentage } = calculatePnl(st);
               const noteDate = st.exitDate || st.date || new Date().toISOString();
               const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
@@ -185,7 +193,7 @@ const App: React.FC = () => {
            }
         });
 
-        // Sortowanie po dacie (najnowsze na górze)
+        // Sortowanie: Najnowsze na górze
         mergedTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
         const finalTradeList = mergedTrades;
@@ -193,6 +201,7 @@ const App: React.FC = () => {
         return finalTradeList;
       });
 
+      // Aktualizacja salda portfela
       if (accountValue > 0) {
         setWallets(prev => {
           const newWallets = prev.map(w => {
