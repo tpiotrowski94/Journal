@@ -30,11 +30,9 @@ const App: React.FC = () => {
   const [activeWalletId, setActiveWalletId] = useState<string>('');
   const [trades, setTrades] = useState<Trade[]>([]);
   const [formValues, setFormValues] = useState({ entry: 0, sl: 0 });
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -58,7 +56,7 @@ const App: React.FC = () => {
         id: crypto.randomUUID(),
         name: 'Main Portfolio',
         provider: SyncProvider.MANUAL,
-        initialBalance: 1000,
+        initialBalance: 0,
         balanceAdjustment: 0
       };
       setWallets([defaultWallet]);
@@ -89,18 +87,25 @@ const App: React.FC = () => {
 
     try {
       const { trades: syncedTrades, accountValue } = await syncHyperliquidData(wallet.address, wallet.historyStartDate);
-      const addrLower = wallet.address.toLowerCase();
+      const addrLower = wallet.address.trim().toLowerCase();
 
+      let updatedTrades: Trade[] = [];
       setTrades(prevTrades => {
-        // 1. Zachowaj metadane (notatki, dźwignię) z aktualnie otwartych pozycji lokalnych
+        // Cache meta data from existing trades to preserve Leverage and Notes for closed positions
         const metaCache = new Map<string, { notes: NoteEntry[], leverage: number, confidence: number }>();
         prevTrades.forEach(t => {
-          if (t.status === TradeStatus.OPEN && t.symbol) {
-            metaCache.set(t.symbol, { notes: t.notes, leverage: t.leverage, confidence: t.confidence });
+          if (t.symbol) {
+             // We prioritize preserving leverage if it was > 1
+             const existing = metaCache.get(t.symbol);
+             const betterLeverage = t.leverage > 1 ? t.leverage : (existing?.leverage || 1);
+             metaCache.set(t.symbol, { 
+               notes: t.notes, 
+               leverage: betterLeverage, 
+               confidence: t.confidence 
+             });
           }
         });
 
-        // 2. Usuń stare "aktywne" pozycje dla tego konkretnego portfela
         const filtered = prevTrades.filter(t => {
           const isOurActive = t.status === TradeStatus.OPEN && t.externalId?.includes(`hl-active-`) && t.externalId?.includes(addrLower);
           return !isOurActive;
@@ -113,16 +118,20 @@ const App: React.FC = () => {
           const symbol = st.symbol || '';
           const cached = metaCache.get(symbol);
 
+          // Fix leverage for closed trades: if API returned 1 but we remember it was higher, use cached
+          if (st.leverage === 1 && cached?.leverage && cached.leverage > 1) {
+            st.leverage = cached.leverage;
+          }
+
           if (st.status === TradeStatus.OPEN) {
             finalNewTrades.push({
               ...st,
               id: crypto.randomUUID(),
-              notes: cached?.notes || [{ id: crypto.randomUUID(), text: 'Live position', date: new Date().toISOString() }],
+              notes: cached?.notes || [{ id: crypto.randomUUID(), text: 'Live position from HL', date: new Date().toISOString() }],
               confidence: cached?.confidence || 3,
               pnl: 0, pnlPercentage: 0, initialRisk: 0
             } as Trade);
           } else if (st.status === TradeStatus.CLOSED && !existingClosedIds.has(st.externalId)) {
-            // Dziedziczenie notatek z zamkniętej pozycji (jeśli była wcześniej otwarta w dzienniku)
             const { pnl, pnlPercentage } = calculatePnl(st);
             finalNewTrades.push({
               ...st,
@@ -134,28 +143,57 @@ const App: React.FC = () => {
           }
         });
 
-        const merged = [...finalNewTrades, ...filtered];
-        dataService.saveTrades(currentId, merged);
-        return merged;
+        updatedTrades = [...finalNewTrades, ...filtered];
+        dataService.saveTrades(currentId, updatedTrades);
+        return updatedTrades;
       });
 
       if (accountValue > 0) {
-        setWallets(prev => prev.map(w => {
-          if (w.id === currentId) {
-            // Automatyczna korekta balansu
-            const closedPnL = trades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
-            const neededAdj = accountValue - (w.initialBalance + closedPnL);
-            return { ...w, balanceAdjustment: neededAdj, lastSyncAt: new Date().toISOString() };
-          }
-          return w;
-        }));
+        setWallets(prev => {
+          const newWallets = prev.map(w => {
+            if (w.id === currentId) {
+              const totalClosedPnl = updatedTrades.filter(t => t.status === TradeStatus.CLOSED).reduce((sum, t) => sum + (t.pnl || 0), 0);
+              let baseBalance = w.initialBalance;
+              if (baseBalance === 0) {
+                baseBalance = accountValue - totalClosedPnl;
+              }
+              const neededAdj = accountValue - (baseBalance + totalClosedPnl);
+              return { 
+                ...w, 
+                initialBalance: baseBalance, 
+                balanceAdjustment: neededAdj, 
+                lastSyncAt: new Date().toISOString() 
+              };
+            }
+            return w;
+          });
+          dataService.saveWallets(newWallets);
+          return newWallets;
+        });
       }
     } catch (error) {
       console.error("Sync error:", error);
     } finally {
       setIsSyncing(false);
     }
-  }, [wallets, isSyncing, calculatePnl, trades]);
+  }, [wallets, isSyncing, calculatePnl]);
+
+  // Aggressive Auto-Sync (15 seconds) for Hyperliquid wallets to catch leverage before close
+  const activeWallet = wallets.find(w => w.id === activeWalletId);
+  const autoSyncEnabled = activeWallet?.autoSync && activeWallet?.provider === SyncProvider.HYPERLIQUID;
+
+  useEffect(() => {
+    if (!autoSyncEnabled) return;
+    
+    // Initial sync on mount/enable
+    handleSyncWallet(true);
+
+    const timer = setInterval(() => {
+      handleSyncWallet(true);
+    }, 15000); // 15 seconds interval
+
+    return () => clearInterval(timer);
+  }, [autoSyncEnabled, handleSyncWallet]);
 
   const stats: TradingStats = useMemo(() => {
     const activeWallet = wallets.find(w => w.id === activeWalletId);
@@ -191,7 +229,7 @@ const App: React.FC = () => {
 
   const handleAddTrade = (tradeData: Omit<Trade, 'id' | 'pnl' | 'pnlPercentage' | 'initialRisk'>) => {
     const { pnl, pnlPercentage } = calculatePnl(tradeData);
-    const newTrade: Trade = { ...tradeData, id: crypto.randomUUID(), pnl, pnlPercentage, initialRisk: 0 };
+    const newTrade: Trade = { ...tradeData, id: crypto.randomUUID(), pnl, pnlPercentage, initialRisk: 0, notes: tradeData.notes || [] };
     const updated = [newTrade, ...trades];
     setTrades(updated);
     dataService.saveTrades(activeWalletId, updated);
@@ -200,33 +238,39 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-300 font-sans">
       <div className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8">
-        <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-xl shadow-blue-600/20">
-              <i className="fas fa-terminal text-xl text-white"></i>
+        <header className="flex flex-col gap-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-xl shadow-blue-600/20">
+                <i className="fas fa-terminal text-xl text-white"></i>
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">CryptoJournal <span className="text-blue-500">Pro</span></h1>
+                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Multi-Wallet Terminal</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">CryptoJournal <span className="text-blue-500">Pro</span></h1>
-              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Multi-Wallet Terminal</p>
+            
+            <div className="flex items-center gap-3">
+              <button onClick={async () => {
+                setIsAnalyzing(true);
+                try { const res = await analyzeTrades(trades); setAiAnalysis(res); } 
+                finally { setIsAnalyzing(false); }
+              }} disabled={isAnalyzing} className="px-5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-blue-400 flex items-center gap-2 transition-all hover:bg-slate-700">
+                <i className={`fas ${isAnalyzing ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`}></i> AI Analysis
+              </button>
+              <button onClick={() => handleSyncWallet()} disabled={isSyncing} className="px-5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-emerald-400 flex items-center gap-2 transition-all hover:bg-slate-700">
+                <i className={`fas ${isSyncing ? 'fa-sync fa-spin' : 'fa-rotate'}`}></i> Sync Wallet
+              </button>
             </div>
           </div>
-          
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={async () => {
-              setIsAnalyzing(true);
-              try { const res = await analyzeTrades(trades); setAiAnalysis(res); } 
-              finally { setIsAnalyzing(false); }
-            }} disabled={isAnalyzing} className="px-5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-blue-400 flex items-center gap-2 transition-all hover:bg-slate-700">
-              <i className={`fas ${isAnalyzing ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`}></i> AI Analysis
-            </button>
-            <button onClick={() => handleSyncWallet()} disabled={isSyncing} className="px-5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-emerald-400 flex items-center gap-2 transition-all hover:bg-slate-700">
-              <i className={`fas ${isSyncing ? 'fa-sync fa-spin' : 'fa-rotate'}`}></i> Sync Wallet
-            </button>
+
+          {/* Wallet Switcher moved to a separate row for clarity */}
+          <div className="border-b border-slate-800/50 pb-6">
             <WalletSwitcher 
               wallets={wallets} activeWalletId={activeWalletId} 
               onSelect={(id) => { setActiveWalletId(id); dataService.setActiveWalletId(id); setTrades(dataService.loadTrades(id)); setAiAnalysis(null); }} 
               onAdd={() => {
-                const nw: Wallet = { id: crypto.randomUUID(), name: 'New Portfolio', provider: SyncProvider.MANUAL, initialBalance: 1000, balanceAdjustment: 0 };
+                const nw: Wallet = { id: crypto.randomUUID(), name: 'New Portfolio', provider: SyncProvider.MANUAL, initialBalance: 0, balanceAdjustment: 0 };
                 const updated = [...wallets, nw]; setWallets(updated); dataService.saveWallets(updated);
               }}
               onDelete={(id) => {
@@ -252,6 +296,7 @@ const App: React.FC = () => {
                 }
               }} 
               onUpdateInitialBalance={(val) => handleUpdateWallet({ initialBalance: val })}
+              isLive={wallets.find(w => w.id === activeWalletId)?.provider !== SyncProvider.MANUAL}
             />
 
             {aiAnalysis && (
@@ -263,13 +308,16 @@ const App: React.FC = () => {
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Lewa kolumna: Formularz i Kalkulatory */}
               <div className="lg:col-span-4 space-y-8">
                 <TradeForm onAddTrade={handleAddTrade} onFormUpdate={setFormValues} />
                 <RiskCalculator balance={stats.currentBalance} externalData={formValues} />
                 <DcaCalculator />
               </div>
+
+              {/* Prawa kolumna: Tabele razem na górze, potem wizualizacje */}
               <div className="lg:col-span-8 space-y-8">
-                <Charts trades={trades} initialBalance={stats.initialBalance} />
+                {/* 1. Aktywne Pozycje */}
                 <TradeTable 
                   title="Active Positions" trades={trades.filter(t => t.status === TradeStatus.OPEN)} status={TradeStatus.OPEN}
                   onDelete={(id) => { const u = trades.filter(t => t.id !== id); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
@@ -300,7 +348,8 @@ const App: React.FC = () => {
                   }}
                   walletBalance={stats.currentBalance} accentColor="blue" icon="fa-bolt"
                 />
-                <PnLCalendar trades={trades} portfolioEquity={stats.initialBalance} />
+
+                {/* 2. Historia Pozycji (bezpośrednio pod aktywnymi) */}
                 <TradeTable 
                   title="Trade History" trades={trades.filter(t => t.status === TradeStatus.CLOSED)} status={TradeStatus.CLOSED}
                   onDelete={(id) => { const u = trades.filter(t => t.id !== id); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
@@ -322,6 +371,10 @@ const App: React.FC = () => {
                   }}
                   walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-history"
                 />
+                
+                {/* 3. Wykresy i Kalendarz na dole */}
+                <Charts trades={trades} initialBalance={stats.initialBalance + (wallets.find(w => w.id === activeWalletId)?.balanceAdjustment || 0)} />
+                <PnLCalendar trades={trades} portfolioEquity={stats.initialBalance} />
               </div>
             </div>
           </>
