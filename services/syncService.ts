@@ -27,7 +27,16 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   if (!webDataResponse.ok) throw new Error("Failed to fetch HL data");
   
   const data = await webDataResponse.json();
-  const mids = await midsResponse.json();
+  
+  let mids: Record<string, any> = {};
+  try {
+    if (midsResponse.ok) {
+      const json = await midsResponse.json();
+      if (json) mids = json;
+    }
+  } catch (e) {
+    console.warn("Failed to load mids", e);
+  }
 
   // 1. OBLICZANIE WARTOŚCI KONTA
   const clearinghouse = data?.clearinghouseState || {};
@@ -48,7 +57,9 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         if (b.coin === 'USDC' || b.coin === 'USDT' || b.coin === 'USD') {
           spotValue += balance;
         } else {
-          const price = parseFloat(mids[b.coin] || mids[`${b.coin}-SPOT`] || "0");
+          // Safe access to mids
+          const coinPrice = mids[b.coin] || mids[`${b.coin}-SPOT`] || "0";
+          const price = parseFloat(coinPrice);
           if (price > 0) {
             spotValue += (balance * price);
           }
@@ -106,7 +117,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
-  // B. Historia (Algorytm z detekcją Flipów)
+  // B. Historia
   if (Array.isArray(fills)) {
     const coinGroups: Record<string, any[]> = {};
     fills.forEach(f => {
@@ -115,47 +126,42 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
 
     Object.entries(coinGroups).forEach(([coin, coinFills]) => {
-      // Sortujemy chronologicznie (od najstarszego)
       const sorted = [...coinFills].sort((a, b) => a.time - b.time);
       
-      let currentPositionSize = 0; // Dodatnie = Long, Ujemne = Short
+      let currentPositionSize = 0;
       let currentBatch: any[] = [];
       
-      sorted.forEach((fill, index) => {
+      sorted.forEach((fill) => {
+        // DETEKCJA SIEROT (Orphans)
+        const hasRealizedPnl = parseFloat(fill.closedPnl || "0") !== 0;
+        const isStartOfBatch = currentBatch.length === 0 && Math.abs(currentPositionSize) < 0.000001;
+
+        if (isStartOfBatch && hasRealizedPnl) {
+           return;
+        }
+
         const sz = parseFloat(fill.sz);
         const sideMult = fill.side === 'B' ? 1 : -1;
         const tradeSize = sz * sideMult;
         
-        // Sprawdzamy czy następuje "Flip" (zmiana znaku pozycji, np. z Long na Short)
-        // lub zamknięcie do zera.
         const prevPositionSize = currentPositionSize;
         const nextPositionSize = currentPositionSize + tradeSize;
         
         const isFlip = (prevPositionSize > 0 && nextPositionSize < 0) || (prevPositionSize < 0 && nextPositionSize > 0);
-        const isClose = Math.abs(nextPositionSize) < 0.000001; // Blisko zera
+        const isClose = Math.abs(nextPositionSize) < 0.000001;
 
         currentBatch.push(fill);
         currentPositionSize = nextPositionSize;
 
-        // Jeśli pozycja została zamknięta LUB odwrócona, finalizujemy "batch" jako transakcję
         if (isClose || isFlip) {
           const endTime = fill.time;
-          
-          // Pobieramy czas otwarcia (pierwszy fill w batchu)
-          const startTime = currentBatch.length > 0 ? currentBatch[0].time : endTime;
+          if (currentBatch.length === 0) return;
 
-          // KLUCZOWE: Ścisły filtr daty. Ignorujemy transakcje zamknięte przed wybraną datą.
+          const startTime = currentBatch[0].time;
+
           if (endTime >= cutoffTimestamp) {
             const symbol = `${coin}-PERP`;
             
-            // Ignorujemy, jeśli symbol jest obecnie aktywny (bo activePositions ma nowsze dane)
-            // Chyba że to stara historia tego samego symbolu
-            // Dla uproszczenia: jeśli mamy aktywną pozycję na BTC, nie pokazujemy historii BTC z dzisiaj, 
-            // ale pokazujemy historię BTC z zeszłego tygodnia.
-            // Tutaj prosta logika: jeśli endTime jest blisko "teraz" i mamy active, to pomijamy.
-            // Ale bezpieczniej: activePositions to tylko "teraz". Wszystko co zamknięte (isClose) to historia.
-            // Flip tworzy zamknięcie starej i otwarcie nowej.
-
             if (!activeSymbols.has(symbol) || endTime < (Date.now() - 60000)) {
                let bVol = 0, bSz = 0, sVol = 0, sSz = 0, feesTotal = 0;
                currentBatch.forEach(f => {
@@ -165,19 +171,10 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
                  else { sSz += fSz; sVol += (fPx * fSz); }
                });
 
-               // Logika wyliczania cen wejścia/wyjścia z batcha
-               // Jeśli zaczynaliśmy od Longa (prevPositionSize > 0), to znaczy że zamykaliśmy Shortami
-               // Ale currentBatch zawiera wszystko od otwarcia do teraz? Nie, currentBatch czyścimy po zamknięciu.
-               // Więc batch zawiera cykl Otwarcie -> Zamknięcie.
-               
-               const tradeType = bSz > sSz ? TradeType.LONG : TradeType.SHORT; // Uproszczenie heurystyczne
-               // Lepsze: jeśli prevPositionSize było 0 (start batcha), to kierunek pierwszego filla determinuje typ.
-               const firstFillSide = currentBatch[0].side; 
-               const type = firstFillSide === 'B' ? TradeType.LONG : TradeType.SHORT;
-
-               const entryPrice = type === TradeType.LONG ? (bVol / bSz) : (sVol / sSz);
-               const exitPrice = type === TradeType.LONG ? (sVol / sSz) : (bVol / bSz);
-               const amount = type === TradeType.LONG ? bSz : sSz;
+               const tradeType = currentBatch[0].side === 'B' ? TradeType.LONG : TradeType.SHORT;
+               const entryPrice = tradeType === TradeType.LONG ? (bVol / bSz) : (sVol / sSz);
+               const exitPrice = tradeType === TradeType.LONG ? (sVol / sSz) : (bVol / bSz);
+               const amount = tradeType === TradeType.LONG ? bSz : sSz;
                
                const settings = leverageMap.get(coin) || { leverage: 1, marginMode: MarginMode.ISOLATED };
 
@@ -185,7 +182,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
                  syncedTrades.push({
                    externalId: `hl-closed-${userAddr}-${coin}-${startTime}-${endTime}`,
                    symbol,
-                   type,
+                   type: tradeType,
                    entryPrice,
                    exitPrice,
                    amount,
@@ -202,15 +199,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
             }
           }
 
-          // Reset batcha
           currentBatch = [];
-          
-          // Jeśli to był Flip, musimy "otworzyć" nową wirtualną pozycję od tego momentu
-          // W rzeczywistości API fills poda nam kolejne fille dla nowej pozycji w następnych iteracjach?
-          // NIE. Ten fill (który flipnął) zawiera w sobie zamknięcie starej i otwarcie nowej.
-          // To jest trudne do idealnego obsłużenia bez dzielenia filla.
-          // Dla uproszczenia w tym widoku: resetujemy batch. Nowa pozycja zacznie się budować od następnego filla.
-          // (To małe niedokładności przy samym flipie, ale naprawia "gigantyczne" transakcje).
           if (isClose) {
              currentPositionSize = 0;
           }
