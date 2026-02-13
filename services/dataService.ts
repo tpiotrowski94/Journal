@@ -25,6 +25,10 @@ export const dataService = {
     localStorage.setItem(`trades_${walletId}`, JSON.stringify(trades));
   },
 
+  deleteTrades: (walletId: string) => {
+    localStorage.removeItem(`trades_${walletId}`);
+  },
+
   getActiveWalletId: (): string | null => {
     return localStorage.getItem(ACTIVE_WALLET_ID_KEY);
   },

@@ -64,6 +64,8 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
       const stats = dailyStats[dateKey];
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
+      // Calculate Portfolio ROI for the day (PnL / Equity)
+      // Note: Using current equity for simplicity, ideally should be equity at start of day
       const portRoi = stats && portfolioEquity > 0 ? (stats.pnl / portfolioEquity) * 100 : 0;
       
       // Determine background color based on PnL
@@ -103,7 +105,8 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
                  <span className={`text-lg md:text-xl font-black tracking-tight ${stats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                    {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
                  </span>
-                 <span className={`text-[10px] font-bold ${portRoi >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
+                 {/* Main Trade Result as Portfolio Growth % */}
+                 <span className={`text-[11px] font-black uppercase mt-0.5 ${portRoi >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
                    {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(2)}% ROI
                  </span>
               </>
@@ -112,11 +115,11 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
             )}
           </div>
 
-          {/* Footer: ROE */}
+          {/* Footer: ROE Sum (Secondary info) */}
           {stats ? (
             <div className="flex justify-center border-t border-slate-700/30 pt-1.5 mt-1">
-               <span className={`text-[10px] font-black uppercase ${stats.roeSum >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                 {stats.roeSum >= 0 ? 'ROE +' : 'ROE '}{Math.round(stats.roeSum)}%
+               <span className="text-[8px] font-bold uppercase text-slate-500">
+                 Sum ROE: {stats.roeSum >= 0 ? '+' : ''}{Math.round(stats.roeSum)}%
                </span>
             </div>
           ) : (

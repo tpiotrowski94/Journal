@@ -126,11 +126,30 @@ const App: React.FC = () => {
       }
 
       setTrades(prevTrades => {
+        // --- PRE-PROCESSING: Leverage Preservation ---
+        // Zapisz dźwignie z aktualnie otwartych pozycji, aby przenieść je do historii, gdy pozycja zostanie zamknięta
+        const openTradeLeverages = new Map<string, number>();
+        prevTrades.forEach(t => {
+          if (t.status === TradeStatus.OPEN && t.leverage > 1) {
+            openTradeLeverages.set(t.symbol, t.leverage);
+          }
+        });
+
         // --- ETAP 1: FILTERING (Sanity Check dla nowych danych) ---
         const validNewTrades = syncedTrades.filter(t => {
            if (!pruneCutoffTime) return true;
            const tTime = new Date(t.exitDate || t.date || 0).getTime();
            return tTime >= pruneCutoffTime;
+        });
+
+        // Aplikuj zapamiętaną dźwignię do nowych zamkniętych transakcji, jeśli HL zwrócił domyślne 1x
+        validNewTrades.forEach(newT => {
+          if (newT.status === TradeStatus.CLOSED && (!newT.leverage || newT.leverage === 1) && newT.symbol) {
+            const preservedLeverage = openTradeLeverages.get(newT.symbol);
+            if (preservedLeverage) {
+              newT.leverage = preservedLeverage;
+            }
+          }
         });
 
         // Mapa nowych transakcji
@@ -166,6 +185,13 @@ const App: React.FC = () => {
 
            if (incomingTrade) {
              let finalLeverage = incomingTrade.leverage || t.leverage || 1;
+             
+             // Priorytetyzuj dźwignię przychodzącą tylko jeśli jest > 1 (czyli z Open Position), 
+             // w przeciwnym razie trzymaj lokalną (która mogła być zedytowana ręcznie lub zachowana)
+             if (incomingTrade.leverage === 1 && t.leverage > 1) {
+                finalLeverage = t.leverage;
+             }
+
              const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
              
              mergedTrades.push({
@@ -179,7 +205,7 @@ const App: React.FC = () => {
              processedExternalIds.add(t.externalId);
            } else {
              if (t.status === TradeStatus.OPEN) {
-                return; // Live open pos not in API anymore -> Gone
+                return; // Live open pos not in API anymore -> Gone (Converted to closed history likely)
              } else {
                 mergedTrades.push(t);
                 processedExternalIds.add(t.externalId);
@@ -223,8 +249,6 @@ const App: React.FC = () => {
 
                 const calculatedInitial = accountValue - visibleTotalPnl;
 
-                // Sprawdzamy, czy zmiana jest istotna, aby unikać zbędnych re-renderów
-                // (np. różnica mniejsza niż 1 cent jest ignorowana, chyba że to pierwsze ustawienie)
                 const isDiff = Math.abs(currentW.initialBalance - calculatedInitial) > 0.01;
 
                 if (isDiff || currentW.balanceAdjustment !== 0) {
@@ -261,8 +285,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!autoSyncEnabled) return;
+    // Immediate sync on enable
     handleSyncWallet(true);
-    const timer = setInterval(() => { handleSyncWallet(true); }, 15000);
+    // 5 seconds interval for faster updates and catching leverage before close
+    const timer = setInterval(() => { handleSyncWallet(true); }, 5000);
     return () => clearInterval(timer);
   }, [autoSyncEnabled, handleSyncWallet]);
 
@@ -384,7 +410,8 @@ const App: React.FC = () => {
                 <i className={`fas ${isAnalyzing ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`}></i> AI Analysis
               </button>
               <button onClick={() => handleSyncWallet()} disabled={isSyncing} className="px-5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-emerald-400 flex items-center gap-2 transition-all hover:bg-slate-700">
-                <i className={`fas ${isSyncing ? 'fa-sync fa-spin' : 'fa-rotate'}`}></i> Sync Wallet
+                <i className={`fas ${isSyncing ? 'fa-sync fa-spin' : 'fa-rotate'}`}></i> 
+                {autoSyncEnabled ? 'Auto-Sync Active (5s)' : 'Sync Wallet'}
               </button>
             </div>
           </div>
@@ -395,8 +422,6 @@ const App: React.FC = () => {
               onSelect={(id) => { 
                 setActiveWalletId(id); 
                 dataService.setActiveWalletId(id); 
-                // Kluczowa zmiana: Ładujemy i od razu filtrujemy (prune) transakcje, 
-                // aby nie było skoku salda przed syncem
                 setTrades(loadAndPruneTrades(id, wallets)); 
                 setAiAnalysis(null); 
               }} 
@@ -406,7 +431,16 @@ const App: React.FC = () => {
               }}
               onDelete={(id) => {
                 if (wallets.length === 1) return;
-                const updated = wallets.filter(w => w.id !== id); setWallets(updated); dataService.saveWallets(updated);
+                
+                // 1. Trwałe usunięcie historii transakcji z bazy (rozwiązanie problemu wiszących danych)
+                dataService.deleteTrades(id);
+
+                // 2. Usunięcie portfela z listy
+                const updated = wallets.filter(w => w.id !== id); 
+                setWallets(updated); 
+                dataService.saveWallets(updated);
+
+                // 3. Przełączenie aktywnego portfela, jeśli usunięto bieżący
                 if (activeWalletId === id) setActiveWalletId(updated[0].id);
               }}
               onUpdateWallet={handleUpdateWallet}

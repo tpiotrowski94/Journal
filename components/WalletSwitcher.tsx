@@ -117,7 +117,7 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
                     >Manual</button>
                     <button 
                       type="button"
-                      onClick={() => setEditingWallet({...editingWallet, provider: SyncProvider.HYPERLIQUID})}
+                      onClick={() => setEditingWallet({...editingWallet, provider: SyncProvider.HYPERLIQUID, autoSync: true})}
                       className={`py-3 rounded-xl text-[9px] font-black uppercase border transition-all ${editingWallet.provider === SyncProvider.HYPERLIQUID ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-600'}`}
                     >Hyperliquid</button>
                   </div>
@@ -142,7 +142,7 @@ const WalletSwitcher: React.FC<WalletSwitcherProps> = ({ wallets, activeWalletId
                         />
                         <div className="flex flex-col">
                           <span className="text-[10px] font-black text-slate-400 group-hover:text-white uppercase tracking-widest transition-colors">Enable Auto-Sync</span>
-                          <span className="text-[8px] text-slate-600 uppercase font-bold">Check positions every 5 minutes</span>
+                          <span className="text-[8px] text-slate-600 uppercase font-bold">Check positions every 5 seconds</span>
                         </div>
                       </label>
                     </div>

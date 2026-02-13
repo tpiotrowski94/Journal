@@ -140,7 +140,7 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 <th className="px-6 py-4">Position Exposure</th>
                 <th className="px-6 py-4">Execution / Costs</th>
                 <th className="px-6 py-4">Operational Costs</th>
-                <th className="px-6 py-4 text-right">{isOpenTable ? 'Stop Loss / Risk' : 'Net PnL / ROE'}</th>
+                <th className="px-6 py-4 text-right">{isOpenTable ? 'Stop Loss / Risk' : 'Net PnL / Results'}</th>
                 <th className="px-6 py-4 text-center">Actions</th>
               </tr>
             </thead>
@@ -159,19 +159,27 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 const marginVal = notionalVal / leverageVal;
 
                 const riskVal = Number(trade.initialRisk) || 0;
-                const pnlVal = Number(trade.pnl) || 0;
-                const pnlPctVal = Number(trade.pnlPercentage) || 0;
+                const pnlVal = Number(trade.pnl) || 0; // Net PnL (after fees)
+                
                 const feesVal = Number(trade.fees) || 0;
                 const fundingVal = Number(trade.fundingFees) || 0;
                 const totalCosts = feesVal + fundingVal;
                 const conf = trade.confidence || 3;
 
-                // Calculate Gross PnL (Price Diff only) for display
+                // 1. Gross PnL (Tylko różnica cen)
                 const grossPnl = (!isOpenTable && trade.exitPrice) 
                   ? (trade.type === TradeType.LONG 
                       ? (Number(trade.exitPrice) - entryVal) * amountVal
                       : (entryVal - Number(trade.exitPrice)) * amountVal)
                   : 0;
+
+                // 2. Gross ROE (Tak jak na giełdzie: Gross PnL / Margin)
+                const grossRoe = marginVal > 0 ? (grossPnl / marginVal) * 100 : 0;
+
+                // 3. Price Move % (Ile ruszyła się cena aktywa)
+                const priceMovePct = (entryVal > 0 && trade.exitPrice) 
+                    ? ((Number(trade.exitPrice) - entryVal) / entryVal) * 100 * (trade.type === TradeType.LONG ? 1 : -1)
+                    : 0;
 
                 // Koszty przy wyjściu (jeśli były doliczane jako incremental)
                 const exitFeesVal = Number(trade.exitFees) || 0;
@@ -276,15 +284,20 @@ const TradeTable: React.FC<TradeTableProps> = ({
                             </div>
                           </>
                         ) : (
-                          <div className="leading-none flex flex-col items-end">
-                            <span className="text-[7px] text-slate-600 font-bold uppercase tracking-wider mb-1">
-                              Gross: <span className={grossPnl >= 0 ? 'text-slate-400' : 'text-rose-900'}>{grossPnl >= 0 ? '+' : ''}{grossPnl.toFixed(2)}</span>
-                            </span>
-                            <div className={`font-black text-[15px] ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)} $
+                          <div className="leading-none flex flex-col items-end gap-1">
+                            {/* 1. Main Percent Result (Gross ROE) like on Exchange */}
+                            <div className={`text-[15px] font-black tracking-tight ${grossRoe >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {grossRoe >= 0 ? '+' : ''}{grossRoe.toFixed(2)}%
                             </div>
-                            <div className={`text-[10px] font-black uppercase mt-1.5 ${pnlVal >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                              {(pnlPctVal >= 0 ? '+' : '') + pnlPctVal.toFixed(1) + '%'} ROE
+                            
+                            {/* 2. Price Movement - Removed Label "Move" */}
+                            <div className={`text-[9px] font-bold uppercase ${priceMovePct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                               {priceMovePct >= 0 ? '+' : ''}{priceMovePct.toFixed(2)}%
+                            </div>
+
+                            {/* 3. Net PnL (Real Money) - Removed Label "Net" */}
+                            <div className={`text-[11px] font-black mt-1 px-1.5 py-0.5 rounded border border-slate-700/50 ${pnlVal >= 0 ? 'text-emerald-500 bg-emerald-500/5' : 'text-rose-500 bg-rose-500/5'}`}>
+                              {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)} $
                             </div>
                           </div>
                         )}
