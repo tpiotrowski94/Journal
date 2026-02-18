@@ -92,4 +92,5 @@ export interface TradingStats {
   totalFundingFees: number;
   bestTrade: number;
   worstTrade: number;
+  totalFloatingPnl: number;
 }

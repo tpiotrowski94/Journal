@@ -29,54 +29,58 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
 
   const totalCosts = (Number(stats.totalTradingFees) || 0) + (Number(stats.totalFundingFees) || 0);
   const grossPnl = stats.totalPnl + totalCosts;
-  
-  // Floating PnL to różnica między tym co mamy na giełdzie a tym co jest zrealizowane
-  const floatingPnL = isLive ? (stats.currentBalance - (stats.initialBalance + stats.totalPnl)) : 0;
 
-  const tradingPerformanceRoi = stats.initialBalance > 0 
-    ? (stats.totalPnl / stats.initialBalance) * 100 
+  // Floating PnL bezpośrednio z danych (suma pnl otwartych pozycji)
+  const floatingPnL = stats.totalFloatingPnl || 0;
+
+  // Obliczamy balans startowy dla danego okresu (Equity - Realized - Floating)
+  // Pozwala to na poprawny ROI nawet gdy filtrujemy historię
+  const periodStartBalance = stats.currentBalance - stats.totalPnl - floatingPnL;
+
+  const tradingPerformanceRoi = periodStartBalance > 0
+    ? (stats.totalPnl / periodStartBalance) * 100
     : 0;
 
   const cards = [
-    { 
-      label: 'Account Value (Net)', 
-      value: `$${stats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+    {
+      label: 'Account Value (Net)',
+      value: `$${stats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       sub: `Equity + Unrealized PnL`,
-      color: 'text-white', 
+      color: 'text-white',
       icon: 'fa-vault',
       bg: isLive ? 'bg-blue-600/10' : 'bg-slate-800',
       isAdjustable: 'equity',
       badge: isLive ? 'HL LIVE' : null
     },
-    { 
+    {
       label: 'Realized PnL',
-      value: `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`, 
+      value: `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`,
       sub: `Net Profit from History`,
-      color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', 
+      color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400',
       icon: 'fa-coins',
       bg: stats.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10'
     },
-    { 
-      label: 'Floating PnL', 
-      value: `${floatingPnL >= 0 ? '+' : ''}${floatingPnL.toFixed(2)}$`, 
+    {
+      label: 'Floating PnL',
+      value: `${floatingPnL >= 0 ? '+' : ''}${floatingPnL.toFixed(2)}$`,
       sub: 'Open Positions Unrealized',
-      color: floatingPnL >= 0 ? 'text-blue-400' : 'text-rose-400', 
+      color: floatingPnL >= 0 ? 'text-blue-400' : 'text-rose-400',
       icon: 'fa-wave-square',
       bg: 'bg-slate-800'
     },
-    { 
-      label: 'Portfolio Growth', 
-      value: `${tradingPerformanceRoi >= 0 ? '+' : ''}${tradingPerformanceRoi.toFixed(2)}%`, 
+    {
+      label: 'Portfolio Growth',
+      value: `${tradingPerformanceRoi >= 0 ? '+' : ''}${tradingPerformanceRoi.toFixed(2)}%`,
       sub: 'Return on Initial Cap.',
-      color: tradingPerformanceRoi >= 0 ? 'text-blue-400' : 'text-rose-400', 
+      color: tradingPerformanceRoi >= 0 ? 'text-blue-400' : 'text-rose-400',
       icon: 'fa-chart-line',
       bg: 'bg-slate-800'
     },
-    { 
-      label: 'Total Fees/Fund', 
-      value: `-$${Math.abs(totalCosts).toFixed(2)}`, 
-      sub: `Cumulative Costs`, 
-      color: 'text-amber-500', 
+    {
+      label: 'Total Fees/Fund',
+      value: `-$${Math.abs(totalCosts).toFixed(2)}`,
+      sub: `Cumulative Costs`,
+      color: 'text-amber-500',
       icon: 'fa-money-bill-transfer',
       bg: 'bg-amber-500/5'
     }
@@ -89,7 +93,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
           <div className="absolute -right-2 -top-2 opacity-5 group-hover:opacity-10 transition-opacity">
             <i className={`fas ${card.icon} text-6xl`}></i>
           </div>
-          
+
           <div className="flex justify-between items-start mb-2 relative z-10">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{card.label}</span>
@@ -100,14 +104,14 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
             <div className="flex gap-1.5">
               {card.isAdjustable === 'equity' && (
                 <>
-                  <button 
+                  <button
                     onClick={() => { setIsEditingInitial(true); setInitialInput(stats.initialBalance.toFixed(0)); }}
                     className="text-slate-600 hover:text-emerald-400 transition-colors p-1"
                     title="Change Initial Balance"
                   >
                     <i className="fas fa-plus text-[9px]"></i>
                   </button>
-                  <button 
+                  <button
                     onClick={() => { setIsEditingBalance(true); setBalanceInput(stats.currentBalance.toFixed(2)); }}
                     className="text-slate-600 hover:text-blue-400 transition-colors p-1"
                     title="Manual Balance Override"
@@ -123,7 +127,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
             {isEditingBalance && card.isAdjustable === 'equity' ? (
               <div className="flex flex-col gap-1">
                 <span className="text-[7px] font-black text-blue-400 uppercase">Set Real Equity</span>
-                <input 
+                <input
                   autoFocus
                   type="number"
                   step="any"
@@ -137,7 +141,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
             ) : isEditingInitial && card.isAdjustable === 'equity' ? (
               <div className="flex flex-col gap-1">
                 <span className="text-[7px] font-black text-emerald-400 uppercase">Set Initial Base</span>
-                <input 
+                <input
                   autoFocus
                   type="number"
                   step="any"

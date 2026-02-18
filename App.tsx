@@ -9,7 +9,7 @@ import PnLCalendar from './components/PnLCalendar';
 import RiskCalculator from './components/RiskCalculator';
 import DcaCalculator from './components/DcaCalculator';
 import WalletSwitcher from './components/WalletSwitcher';
-import TradingMantra from './components/TradingMantra'; 
+import TradingMantra from './components/TradingMantra';
 import { analyzeTrades } from './services/geminiService';
 import { syncHyperliquidData } from './services/syncService';
 import { dataService } from './services/dataService';
@@ -33,13 +33,13 @@ const App: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadAndPruneTrades = useCallback((walletId: string, currentWallets: Wallet[]) => {
     const rawTrades = dataService.loadTrades(walletId);
     const wallet = currentWallets.find(w => w.id === walletId);
-    
+
     if (!wallet?.historyStartDate) {
       return rawTrades;
     }
@@ -96,15 +96,15 @@ const App: React.FC = () => {
     const entry = Number(trade.entryPrice) || 0, amount = Number(trade.amount) || 0;
     const exit = trade.exitPrice ?? null, fees = Number(trade.fees) || 0, funding = Number(trade.fundingFees) || 0, lev = Number(trade.leverage) || 1;
     if (entry === 0 || amount === 0 || exit === null) return { pnl: 0, pnlPercentage: 0 };
-    
+
     // Jeśli trade ma już PnL z API (Hyperliquid sync), użyj go jako bazy gross PnL
     // W przeciwnym razie oblicz ze średniej
     let grossPnl = 0;
     if (trade.pnl !== undefined && trade.externalId) {
-       // trade.pnl z syncService to wartość 'closedPnl' (realized gross)
-       grossPnl = trade.pnl;
+      // trade.pnl z syncService to wartość 'closedPnl' (realized gross)
+      grossPnl = trade.pnl;
     } else {
-       grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
+      grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
     }
 
     const netPnl = grossPnl - fees - funding;
@@ -118,7 +118,7 @@ const App: React.FC = () => {
 
     const wallet = wallets.find(w => w.id === currentId);
     if (!wallet?.address || wallet.provider === SyncProvider.MANUAL || isSyncing) return;
-    
+
     if (!isAuto) setIsSyncing(true);
 
     try {
@@ -144,9 +144,9 @@ const App: React.FC = () => {
         });
 
         const validNewTrades = syncedTrades.filter(t => {
-           if (!pruneCutoffTime) return true;
-           const tTime = new Date(t.exitDate || t.date || 0).getTime();
-           return tTime >= pruneCutoffTime;
+          if (!pruneCutoffTime) return true;
+          const tTime = new Date(t.exitDate || t.date || 0).getTime();
+          return tTime >= pruneCutoffTime;
         });
 
         validNewTrades.forEach(newT => {
@@ -159,63 +159,63 @@ const App: React.FC = () => {
         });
 
         const incomingMap = new Map(validNewTrades.map(t => [t.externalId, t]));
-        
+
         const mergedTrades: Trade[] = [];
         const processedExternalIds = new Set<string>();
 
         prevTrades.forEach(t => {
-           if (!t.externalId) {
-             mergedTrades.push(t);
-             return;
-           }
-           if (pruneCutoffTime > 0) {
-              const tradeTime = new Date(t.exitDate || t.date).getTime();
-              if (tradeTime < pruneCutoffTime) return;
-           }
-           if (!t.externalId.toLowerCase().includes(addrLower)) {
-             mergedTrades.push(t);
-             return;
-           }
+          if (!t.externalId) {
+            mergedTrades.push(t);
+            return;
+          }
+          if (pruneCutoffTime > 0) {
+            const tradeTime = new Date(t.exitDate || t.date).getTime();
+            if (tradeTime < pruneCutoffTime) return;
+          }
+          if (!t.externalId.toLowerCase().includes(addrLower)) {
+            mergedTrades.push(t);
+            return;
+          }
 
-           const incomingTrade = incomingMap.get(t.externalId);
-           if (incomingTrade) {
-             let finalLeverage = incomingTrade.leverage || t.leverage || 1;
-             if (incomingTrade.leverage === 1 && t.leverage > 1) {
-                finalLeverage = t.leverage;
-             }
-             // Tutaj calculatePnl tylko odejmie fees/funding od już ustawionego gross PnL
-             const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
-             
-             // Zachowaj notatki
-             mergedTrades.push({ 
-                ...t, 
-                ...incomingTrade, 
-                leverage: finalLeverage, 
-                pnl, 
-                pnlPercentage 
-             } as Trade);
-             processedExternalIds.add(t.externalId);
-           } else {
-             if (t.status === TradeStatus.OPEN) return; 
-             else { mergedTrades.push(t); processedExternalIds.add(t.externalId); }
-           }
+          const incomingTrade = incomingMap.get(t.externalId);
+          if (incomingTrade) {
+            let finalLeverage = incomingTrade.leverage || t.leverage || 1;
+            if (incomingTrade.leverage === 1 && t.leverage > 1) {
+              finalLeverage = t.leverage;
+            }
+            // Tutaj calculatePnl tylko odejmie fees/funding od już ustawionego gross PnL
+            const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
+
+            // Zachowaj notatki
+            mergedTrades.push({
+              ...t,
+              ...incomingTrade,
+              leverage: finalLeverage,
+              pnl,
+              pnlPercentage
+            } as Trade);
+            processedExternalIds.add(t.externalId);
+          } else {
+            if (t.status === TradeStatus.OPEN) return;
+            else { mergedTrades.push(t); processedExternalIds.add(t.externalId); }
+          }
         });
 
         validNewTrades.forEach(st => {
-           if (st.externalId && !processedExternalIds.has(st.externalId)) {
-              const { pnl, pnlPercentage } = calculatePnl(st);
-              const noteDate = st.exitDate || st.date || new Date().toISOString();
-              const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
-              mergedTrades.push({
-                ...st,
-                id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: defaultNoteText, date: noteDate }],
-                confidence: 3,
-                pnl,
-                pnlPercentage,
-                initialRisk: 0
-              } as Trade);
-           }
+          if (st.externalId && !processedExternalIds.has(st.externalId)) {
+            const { pnl, pnlPercentage } = calculatePnl(st);
+            const noteDate = st.exitDate || st.date || new Date().toISOString();
+            const defaultNoteText = st.status === TradeStatus.OPEN ? 'Live position from HL' : 'Imported history';
+            mergedTrades.push({
+              ...st,
+              id: crypto.randomUUID(),
+              notes: [{ id: crypto.randomUUID(), text: defaultNoteText, date: noteDate }],
+              confidence: 3,
+              pnl,
+              pnlPercentage,
+              initialRisk: 0
+            } as Trade);
+          }
         });
 
         mergedTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -223,53 +223,53 @@ const App: React.FC = () => {
         dataService.saveTrades(currentId, finalTradeList);
 
         if (accountValue >= 0) {
-            setWallets(prev => {
-                const currentW = prev.find(w => w.id === currentId);
-                if (!currentW) return prev;
+          setWallets(prev => {
+            const currentW = prev.find(w => w.id === currentId);
+            if (!currentW) return prev;
 
-                const visibleTotalPnl = finalTradeList
-                    .filter(t => t.status === TradeStatus.CLOSED)
-                    .reduce((sum, t) => sum + (t.pnl || 0), 0);
+            const visibleTotalPnl = finalTradeList
+              .filter(t => t.status === TradeStatus.CLOSED)
+              .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
-                let newInitial = currentW.initialBalance;
-                let newAdjustment = currentW.balanceAdjustment;
+            let newInitial = currentW.initialBalance;
+            let newAdjustment = currentW.balanceAdjustment;
 
-                // Logika Balance Reconciliation:
-                // CurrentValue = Initial + PnL + Adjustment
-                // Adjustment = CurrentValue - Initial - PnL
-                
-                // Jeśli użytkownik NIE ustawił initial (jest 0), to obliczamy Initial wstecznie, żeby Adjustment był 0 (lub stary)
-                if (currentW.initialBalance <= 0) {
-                    newInitial = accountValue - visibleTotalPnl;
-                    // Reset adjustment jeśli initial jest auto-kalkulowany
-                    newAdjustment = 0;
-                } else {
-                    // Jeśli użytkownik ustawił Initial, ufamy mu.
-                    // Dostosowujemy Adjustment, aby wynik (Account Value) się zgadzał.
-                    newAdjustment = accountValue - currentW.initialBalance - visibleTotalPnl;
+            // Logika Balance Reconciliation:
+            // CurrentValue = Initial + PnL + Adjustment
+            // Adjustment = CurrentValue - Initial - PnL
+
+            // Jeśli użytkownik NIE ustawił initial (jest 0), to obliczamy Initial wstecznie, żeby Adjustment był 0 (lub stary)
+            if (currentW.initialBalance <= 0) {
+              newInitial = accountValue - visibleTotalPnl;
+              // Reset adjustment jeśli initial jest auto-kalkulowany
+              newAdjustment = 0;
+            } else {
+              // Jeśli użytkownik ustawił Initial, ufamy mu.
+              // Dostosowujemy Adjustment, aby wynik (Account Value) się zgadzał.
+              newAdjustment = accountValue - currentW.initialBalance - visibleTotalPnl;
+            }
+
+            const hasChanges =
+              Math.abs(currentW.initialBalance - newInitial) > 0.01 ||
+              Math.abs(currentW.balanceAdjustment - newAdjustment) > 0.01;
+
+            if (hasChanges) {
+              const newWallets = prev.map(w => {
+                if (w.id === currentId) {
+                  return {
+                    ...w,
+                    initialBalance: newInitial,
+                    balanceAdjustment: newAdjustment,
+                    lastSyncAt: new Date().toISOString()
+                  };
                 }
-
-                const hasChanges = 
-                  Math.abs(currentW.initialBalance - newInitial) > 0.01 || 
-                  Math.abs(currentW.balanceAdjustment - newAdjustment) > 0.01;
-
-                if (hasChanges) {
-                    const newWallets = prev.map(w => {
-                        if (w.id === currentId) {
-                            return {
-                                ...w,
-                                initialBalance: newInitial,
-                                balanceAdjustment: newAdjustment,
-                                lastSyncAt: new Date().toISOString()
-                            };
-                        }
-                        return w;
-                    });
-                    dataService.saveWallets(newWallets);
-                    return newWallets;
-                }
-                return prev;
-            });
+                return w;
+              });
+              dataService.saveWallets(newWallets);
+              return newWallets;
+            }
+            return prev;
+          });
         }
 
         return finalTradeList;
@@ -297,7 +297,9 @@ const App: React.FC = () => {
     const initial = activeWallet?.initialBalance || 0;
     const adjustment = activeWallet?.balanceAdjustment || 0;
     const closedTrades = trades.filter(t => t.status === TradeStatus.CLOSED);
+    const openTradesList = trades.filter(t => t.status === TradeStatus.OPEN);
     const totalPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const totalFloatingPnl = openTradesList.reduce((sum, t) => sum + (t.pnl || 0), 0);
     const totalFees = trades.reduce((sum, t) => sum + (t.fees || 0), 0);
     const totalFunding = trades.reduce((sum, t) => sum + (t.fundingFees || 0), 0);
     const wins = closedTrades.filter(t => t.pnl > 0).length;
@@ -315,6 +317,7 @@ const App: React.FC = () => {
       totalFundingFees: totalFunding,
       bestTrade: closedTrades.length > 0 ? Math.max(...closedTrades.map(t => t.pnl)) : 0,
       worstTrade: closedTrades.length > 0 ? Math.min(...closedTrades.map(t => t.pnl)) : 0,
+      totalFloatingPnl,
     };
   }, [trades, wallets, activeWalletId]);
 
@@ -378,7 +381,7 @@ const App: React.FC = () => {
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Multi-Wallet Terminal</p>
               </div>
             </div>
-            
+
             <div className="flex flex-wrap items-center gap-3">
               <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-700 hover:text-white"><i className="fas fa-file-import"></i> Import</button>
               <button onClick={handleExportBackup} className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-700 hover:text-white"><i className="fas fa-file-export"></i> Backup</button>
@@ -389,9 +392,9 @@ const App: React.FC = () => {
           </div>
 
           <div className="border-b border-slate-800/50 pb-6">
-            <WalletSwitcher 
-              wallets={wallets} activeWalletId={activeWalletId} 
-              onSelect={(id) => { setActiveWalletId(id); dataService.setActiveWalletId(id); setTrades(loadAndPruneTrades(id, wallets)); setAiAnalysis(null); }} 
+            <WalletSwitcher
+              wallets={wallets} activeWalletId={activeWalletId}
+              onSelect={(id) => { setActiveWalletId(id); dataService.setActiveWalletId(id); setTrades(loadAndPruneTrades(id, wallets)); setAiAnalysis(null); }}
               onAdd={() => { const nw: Wallet = { id: crypto.randomUUID(), name: 'New Portfolio', provider: SyncProvider.MANUAL, initialBalance: 0, balanceAdjustment: 0 }; const updated = [...wallets, nw]; setWallets(updated); dataService.saveWallets(updated); }}
               onDelete={(id) => { if (wallets.length === 1) return; dataService.deleteTrades(id); const updated = wallets.filter(w => w.id !== id); setWallets(updated); dataService.saveWallets(updated); if (activeWalletId === id) setActiveWalletId(updated[0].id); }}
               onUpdateWallet={handleUpdateWallet}
@@ -402,15 +405,15 @@ const App: React.FC = () => {
         {wallets.find(w => w.id === activeWalletId) && (
           <>
             <TradingMantra activeWallet={wallets.find(w => w.id === activeWalletId)!} onUpdateWallet={handleUpdateWallet} />
-            <Dashboard 
-              stats={stats} 
+            <Dashboard
+              stats={stats}
               onAdjustBalance={(val) => {
                 const w = wallets.find(w => w.id === activeWalletId);
                 if (w) {
                   const needed = val - (w.initialBalance + stats.totalPnl);
                   handleUpdateWallet({ balanceAdjustment: needed });
                 }
-              }} 
+              }}
               onUpdateInitialBalance={(val) => handleUpdateWallet({ initialBalance: val })}
               isLive={wallets.find(w => w.id === activeWalletId)?.provider !== SyncProvider.MANUAL}
             />
@@ -431,11 +434,11 @@ const App: React.FC = () => {
               </div>
 
               <div className="lg:col-span-8 space-y-8">
-                <TradeTable 
+                <TradeTable
                   title="Active Positions" trades={trades.filter(t => t.status === TradeStatus.OPEN)} status={TradeStatus.OPEN}
                   onDelete={(id) => { const u = trades.filter(t => t.id !== id); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
-                  onCloseTrade={(id, p, f, n, fund, d) => { const u = trades.map(t => t.id === id ? { ...t, exitPrice: p, fees: t.fees + f, fundingFees: t.fundingFees + (fund||0), exitDate: d, status: TradeStatus.CLOSED, notes: n ? [...t.notes, {id: crypto.randomUUID(), text: n, date: new Date().toISOString()}] : t.notes } : t); const final = u.map(t => t.id === id ? { ...t, ...calculatePnl(t) } : t); setTrades(final); dataService.saveTrades(activeWalletId, final); }}
-                  onAddToPosition={(id, am, p, f, l, fund) => { const u = trades.map(t => t.id === id ? { ...t, amount: t.amount + am, entryPrice: ((t.entryPrice * t.amount) + (p * am)) / (t.amount + am), fees: t.fees + f, fundingFees: t.fundingFees + (fund||0), leverage: l || t.leverage } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
+                  onCloseTrade={(id, p, f, n, fund, d) => { const u = trades.map(t => t.id === id ? { ...t, exitPrice: p, fees: t.fees + f, fundingFees: t.fundingFees + (fund || 0), exitDate: d, status: TradeStatus.CLOSED, notes: n ? [...t.notes, { id: crypto.randomUUID(), text: n, date: new Date().toISOString() }] : t.notes } : t); const final = u.map(t => t.id === id ? { ...t, ...calculatePnl(t) } : t); setTrades(final); dataService.saveTrades(activeWalletId, final); }}
+                  onAddToPosition={(id, am, p, f, l, fund) => { const u = trades.map(t => t.id === id ? { ...t, amount: t.amount + am, entryPrice: ((t.entryPrice * t.amount) + (p * am)) / (t.amount + am), fees: t.fees + f, fundingFees: t.fundingFees + (fund || 0), leverage: l || t.leverage } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   onEditTrade={(id, data) => { const u = trades.map(t => t.id === id ? { ...t, ...data } : t).map(t => t.id === id ? { ...t, ...calculatePnl(t) } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   onAddNote={(id, text) => { const u = trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   onUpdateNote={(tId, nId, text) => { const u = trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
@@ -443,17 +446,17 @@ const App: React.FC = () => {
                   walletBalance={stats.currentBalance} accentColor="blue" icon="fa-bolt"
                 />
 
-                <TradeTable 
+                <TradeTable
                   title="Trade History" trades={trades.filter(t => t.status === TradeStatus.CLOSED)} status={TradeStatus.CLOSED}
                   onDelete={(id) => { const u = trades.filter(t => t.id !== id); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
-                  onCloseTrade={()=>{}} onAddToPosition={()=>{}} onEditTrade={(id, data) => { const u = trades.map(t => t.id === id ? { ...t, ...data } : t).map(t => t.id === id ? { ...t, ...calculatePnl(t) } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
+                  onCloseTrade={() => { }} onAddToPosition={() => { }} onEditTrade={(id, data) => { const u = trades.map(t => t.id === id ? { ...t, ...data } : t).map(t => t.id === id ? { ...t, ...calculatePnl(t) } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   onAddNote={(id, text) => { const u = trades.map(t => t.id === id ? { ...t, notes: [...t.notes, { id: crypto.randomUUID(), text, date: new Date().toISOString() }] } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   onUpdateNote={(tId, nId, text) => { const u = trades.map(t => t.id === tId ? { ...t, notes: t.notes.map(n => n.id === nId ? { ...n, text } : n) } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   onDeleteNote={(tId, nId) => { const u = trades.map(t => t.id === tId ? { ...t, notes: t.notes.filter(n => n.id !== nId) } : t); setTrades(u); dataService.saveTrades(activeWalletId, u); }}
                   walletBalance={stats.currentBalance} accentColor="emerald" icon="fa-history"
                   onExport={handleExportBackup}
                 />
-                
+
                 <Charts trades={trades} initialBalance={stats.initialBalance + (wallets.find(w => w.id === activeWalletId)?.balanceAdjustment || 0)} />
                 <PnLCalendar trades={trades} portfolioEquity={stats.currentBalance} />
               </div>

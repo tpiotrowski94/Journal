@@ -8,7 +8,7 @@ export interface SyncResult {
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
   const userAddr = address.trim().toLowerCase();
-  
+
   if (!userAddr) {
     throw new Error("Wallet address is required");
   }
@@ -78,12 +78,12 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       }
     });
   }
-  
+
   const totalAccountValue = perpEquity + spotValue;
 
   // 2. PRZETWARZANIE HISTORII TRANSAKCJI
   if (!fillsResponse.ok) {
-     return { trades: [], accountValue: totalAccountValue };
+    return { trades: [], accountValue: totalAccountValue };
   }
 
   const fills = await fillsResponse.json();
@@ -114,11 +114,11 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   Object.entries(coinGroups).forEach(([coin, coinFills]) => {
     // Sortujemy od najstarszych do najnowszych
     const sorted = [...coinFills].sort((a, b) => a.time - b.time);
-    
+
     let currentQty = 0;
     let currentBatch: any[] = [];
     let accumulatedClosedPnl = 0; // PnL z pola closedPnl API
-    
+
     // Zmienne do śledzenia "Active" pozycji z historii
     let activeEntryVol = 0;
     let activeEntrySz = 0;
@@ -128,17 +128,17 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       const fillPx = parseFloat(fill.px);
       const sideMult = fill.side === 'B' ? 1 : -1;
       const signedSz = fillSz * sideMult;
-      
+
       // Czy ten fill zamyka pozycję? (closedPnl != 0 lub redukuje size)
       const rawClosedPnl = parseFloat(fill.closedPnl || "0");
-      
+
       // Wykrywanie startu nowej pozycji (gdy poprzednia była 0)
       const isStart = Math.abs(currentQty) < 0.000001;
-      
+
       // Wykrywanie FLIP (zmiana znaku pozycji, np. z 10 na -10)
       const nextQty = currentQty + signedSz;
       const isFlip = (currentQty > 0 && nextQty < 0) || (currentQty < 0 && nextQty > 0);
-      
+
       // Jeśli to start, czyścimy batch
       if (isStart) {
         currentBatch = [];
@@ -209,8 +209,8 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           // Jeśli to FLIP, to amount w batchu może być mylące (zawiera zamknięcie + otwarcie w drugą stronę).
           // W prostym ujęciu, bierzemy size otwierający.
           if (isFlip) {
-             // Jeśli flip, to batch zawiera mix. Użyjmy activeEntrySz jako bazy wielkości
-             amount = activeEntrySz;
+            // Jeśli flip, to batch zawiera mix. Użyjmy activeEntrySz jako bazy wielkości
+            amount = activeEntrySz;
           }
 
           // Dźwignia z mapy (aktualna) lub domyślna
@@ -219,7 +219,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           // Finalny PnL transakcji
           // Używamy accumulatedClosedPnl jako bazy (Gross PnL z API)
           // App.tsx odejmuje fees, więc trade.pnl = accumulatedClosedPnl
-          
+
           if (amount > 0) {
             syncedTrades.push({
               externalId: `hl-trade-${userAddr}-${coin}-${startTime}-${endTime}`,
@@ -246,7 +246,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         accumulatedClosedPnl = 0;
         activeEntryVol = 0;
         activeEntrySz = 0;
-        
+
         // Jeśli to był FLIP, musimy "rozpocząć" nową pozycję z resztki tego filla
         if (isFlip) {
           // Pozostała wielkość
@@ -258,7 +258,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
             sz: remainingSz.toString(), // Traktujemy jakby to był nowy fill o wielkości reszty
             closedPnl: "0" // PnL został już skonsumowany w zamknięciu poprzedniej
           });
-          
+
           activeEntrySz = remainingSz;
           activeEntryVol = remainingSz * fillPx;
         }
@@ -284,7 +284,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         const symbol = `${coin}-PERP`;
         const levValue = parseFloat(pos.leverage?.value || "1");
         const mode = pos.leverage?.type === 'cross' ? MarginMode.CROSS : MarginMode.ISOLATED;
-        
+
         syncedTrades.push({
           externalId: `hl-active-${symbol}-${userAddr}`,
           symbol,
@@ -296,14 +296,15 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           date: new Date().toISOString(), // Data orientacyjna dla sortowania, w idealnym świecie bierzemy z historii
           marginMode: mode,
           fees: 0,
-          fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0")
+          fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0"),
+          pnl: parseFloat(pos.unrealizedPnl || "0")
         });
       }
     });
   }
-  
-  return { 
-    trades: syncedTrades, 
-    accountValue: totalAccountValue 
+
+  return {
+    trades: syncedTrades,
+    accountValue: totalAccountValue
   };
 };
