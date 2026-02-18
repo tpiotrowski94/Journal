@@ -32,7 +32,7 @@ export interface NoteEntry {
 
 export interface Trade {
   id: string;
-  externalId?: string; 
+  externalId?: string;
   symbol: string;
   type: TradeType;
   status: TradeStatus;

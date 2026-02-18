@@ -61,14 +61,6 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
       bg: stats.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10'
     },
     {
-      label: 'Floating PnL',
-      value: `${floatingPnL >= 0 ? '+' : ''}${floatingPnL.toFixed(2)}$`,
-      sub: 'Open Positions Unrealized',
-      color: floatingPnL >= 0 ? 'text-blue-400' : 'text-rose-400',
-      icon: 'fa-wave-square',
-      bg: 'bg-slate-800'
-    },
-    {
       label: 'Portfolio Growth',
       value: `${tradingPerformanceRoi >= 0 ? '+' : ''}${tradingPerformanceRoi.toFixed(2)}%`,
       sub: 'Return on Initial Cap.',
