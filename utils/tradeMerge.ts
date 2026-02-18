@@ -13,11 +13,13 @@ export const mergeTrades = (
     const incomingTrades = syncResult.trades;
 
     // 1. Separate Manual trades vs Synced trades
-    // Keep ALL Manual trades (no externalId or externalId doesn't match this wallet provider pattern)
-    // For HL provider, check if externalId includes address to identify ownership
-    const manualTrades = existingTrades.filter(t =>
-        !t.externalId || !t.externalId.toLowerCase().includes(addrLower)
-    );
+    // CRITICAL FIX: Only treat trades with NO externalId as "Manual".
+    // Any trade that HAS an externalId but doesn't match the current wallet address is "Leaked Data" and MUST BE PURGED.
+    const manualTrades = existingTrades.filter(t => !t.externalId);
+
+    // Trades that DO have an externalId are processed below (either updated or replaced).
+    // If they don't match the current wallet (addrLower), they are simply ignored/dropped here,
+    // which effectively deletes them from the state. This fixes the "Ghost Position" bug.
 
     // 2. Separate Incoming trades into Open vs Closed
     const incomingOpen = incomingTrades.filter(t => t.status === TradeStatus.OPEN);

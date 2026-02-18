@@ -20,7 +20,16 @@ export const useTradeManager = (activeWalletId: string, wallets: Wallet[]) => {
         // The dependency array handles that. 
         // But to be extra safe against race conditions/strict mode:
 
-        const raw = dataService.loadTrades(activeWalletId);
+        let raw = dataService.loadTrades(activeWalletId);
+
+        // Sanitize: Remove leaked trades that don't belong to this wallet
+        if (activeWallet?.address) {
+            const addrLower = activeWallet.address.trim().toLowerCase();
+            raw = raw.filter(t => {
+                if (!t.externalId) return true; // Keep manual trades
+                return t.externalId.toLowerCase().includes(addrLower);
+            });
+        }
         const filtered = filterTradesByDate(raw, activeWallet?.historyStartDate);
 
         // Simple dedup before setting state
