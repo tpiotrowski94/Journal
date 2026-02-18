@@ -136,8 +136,9 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       const isStart = Math.abs(currentQty) < 0.000001;
 
       // Wykrywanie FLIP (zmiana znaku pozycji, np. z 10 na -10)
+      // Modyfikacja: Jeśli isStart (czyli quantity ~0), nie możemy mieć flipa.
       const nextQty = currentQty + signedSz;
-      const isFlip = (currentQty > 0 && nextQty < 0) || (currentQty < 0 && nextQty > 0);
+      const isFlip = !isStart && ((currentQty > 0 && nextQty < 0) || (currentQty < 0 && nextQty > 0));
 
       // Jeśli to start, czyścimy batch
       if (isStart) {
@@ -220,7 +221,13 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           // Używamy accumulatedClosedPnl jako bazy (Gross PnL z API)
           // App.tsx odejmuje fees, więc trade.pnl = accumulatedClosedPnl
 
-          if (amount > 0) {
+          // PREVENT DUPLICATE/ZERO-PNL GHOST TRADES
+          // Only push if we have meaningful amount AND (pnl != 0 or entry != exit)
+          // Also, if PnL is exactly 0 and fees are 0, it might be a ghost or dust.
+          const isDust = amount < 0.00001; // Filter extreme dust
+          const isGhost = accumulatedClosedPnl === 0 && Math.abs(entryPrice - exitPrice) < 0.00000001;
+
+          if (amount > 0 && !isDust && !isGhost) {
             syncedTrades.push({
               externalId: `hl-trade-${userAddr}-${coin}-${startTime}-${endTime}`,
               symbol,
@@ -240,6 +247,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
             });
           }
         }
+
 
         // Reset po zamknięciu
         currentBatch = [];
