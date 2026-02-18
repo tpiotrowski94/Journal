@@ -282,10 +282,18 @@ const TradeTable: React.FC<TradeTableProps> = ({
                       <td className="px-6 py-5 text-right align-top">
                         {isOpenTable ? (
                           <>
-                            <div className={`font-black text-[12px] ${!trade.stopLoss ? 'text-rose-500' : 'text-slate-300'}`}>
-                              {trade.stopLoss ? `$${trade.stopLoss}` : 'NO SL'}
+                            {/* Unrealized PnL & ROE for Active Trades */}
+                            <div className={`text-sm font-black tracking-tight ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)}$
                             </div>
-                            <div className="text-[8px] font-black text-rose-500/70 uppercase mt-1">Risked: ${riskVal.toFixed(0)}</div>
+                            <div className={`text-[10px] font-black uppercase mb-2 ${pnlVal >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
+                              {marginVal > 0 ? ((pnlVal / marginVal) * 100).toFixed(2) : '0.00'}%
+                            </div>
+
+                            <div className={`font-black text-[12px] ${!trade.stopLoss ? 'text-rose-500' : 'text-slate-300'}`}>
+                              {trade.stopLoss ? `SL: $${trade.stopLoss}` : 'NO SL'}
+                            </div>
+                            <div className="text-[8px] font-black text-rose-500/70 uppercase mt-0.5">Risk: ${riskVal.toFixed(0)}</div>
                             <div className="mt-2">
                               <span className="text-[8px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase tracking-widest">Active</span>
                             </div>
