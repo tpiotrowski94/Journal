@@ -37,8 +37,11 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
   // Pozwala to na poprawny ROI nawet gdy filtrujemy historię
   const periodStartBalance = stats.currentBalance - stats.totalPnl - floatingPnL;
 
-  const tradingPerformanceRoi = periodStartBalance > 0
-    ? (stats.totalPnl / periodStartBalance) * 100
+  // Fallback: If computed start balance is 0/negative (e.g. bad history), try using initialBalance directly
+  const safeStartBalance = periodStartBalance > 0 ? periodStartBalance : (stats.initialBalance > 0 ? stats.initialBalance : 0);
+
+  const tradingPerformanceRoi = safeStartBalance > 0
+    ? (stats.totalPnl / safeStartBalance) * 100
     : 0;
 
   const cards = [
@@ -54,11 +57,11 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
     },
     {
       label: 'Realized PnL',
-      value: `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`,
+      value: `${stats.totalPnl > 0 ? '+' : ''}${stats.totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`,
       sub: `Net Profit from History`,
-      color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400',
+      color: stats.totalPnl > 0 ? 'text-emerald-400' : (stats.totalPnl < 0 ? 'text-rose-400' : 'text-slate-400'),
       icon: 'fa-coins',
-      bg: stats.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10'
+      bg: stats.totalPnl > 0 ? 'bg-emerald-500/10' : (stats.totalPnl < 0 ? 'bg-rose-500/10' : 'bg-slate-800')
     },
     {
       label: 'Portfolio Growth',

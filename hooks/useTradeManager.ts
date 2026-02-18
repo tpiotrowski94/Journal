@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Trade, TradeStatus, Wallet, TradingStats } from '../types';
 import { dataService } from '../services/dataService';
 import { calculatePnl, filterTradesByDate } from '../utils/tradeCalculations';
@@ -12,16 +12,29 @@ export const useTradeManager = (activeWalletId: string, wallets: Wallet[]) => {
     // Load trades when wallet changes
     useEffect(() => {
         if (!activeWalletId) return;
+
+        // Prevent redundant loading if we already have data for this wallet in memory
+        // unless it's the specific first mount or explicit change
+        // Actually, we must allow it to run if activeWalletId changes.
+        // But we want to avoid it running if just balance changes (render).
+        // The dependency array handles that. 
+        // But to be extra safe against race conditions/strict mode:
+
         const raw = dataService.loadTrades(activeWalletId);
-        // Apply historical filter if needed
         const filtered = filterTradesByDate(raw, activeWallet?.historyStartDate);
-        setTrades(filtered);
+
+        // Simple dedup before setting state
+        const unique = Array.from(new Map(filtered.map(t => [t.id, t])).values());
+        setTrades(unique);
+
     }, [activeWalletId, activeWallet?.historyStartDate]);
 
     const saveTrades = useCallback((newTrades: Trade[]) => {
-        setTrades(newTrades);
+        // Enforce uniqueness
+        const unique = Array.from(new Map(newTrades.map(t => [t.id, t])).values());
+        setTrades(unique);
         if (activeWalletId) {
-            dataService.saveTrades(activeWalletId, newTrades);
+            dataService.saveTrades(activeWalletId, unique);
         }
     }, [activeWalletId]);
 
