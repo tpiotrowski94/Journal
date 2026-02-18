@@ -29,18 +29,33 @@ export const mergeTrades = (
     // STRATEGY: Replace ALL synced open trades for this wallet causing the "ghost position" bug.
     // We strictly trust the API snapshot for open positions.
 
+    // Map existing OPEN trades for state preservation (Notes, Confidence)
+    const existingOpenMap = new Map(
+        existingTrades
+            .filter(t => t.status === TradeStatus.OPEN && t.externalId)
+            .map(t => [t.externalId, t])
+    );
+
     // Create full Trade objects for incoming Open positions
-    const newOpenTrades: Trade[] = incomingOpen.map(t => ({
-        ...t,
-        id: crypto.randomUUID(), // New ID for new session (or could try to persist if we had persistent IDs)
-        notes: [], // Open positions from API don't have notes unless we merge them... TODO: Preserve notes by externalId match?
-        confidence: 3,
-        pnl: t.pnl || 0,
-        pnlPercentage: 0, // Will be calc by UI or hook
-        initialRisk: 0,
-        fees: t.fees || 0,
-        fundingFees: t.fundingFees || 0
-    } as Trade));
+    const newOpenTrades: Trade[] = incomingOpen.map(t => {
+        const existing = t.externalId ? existingOpenMap.get(t.externalId) : undefined;
+
+        return {
+            ...t,
+            // Preserve ID if exists to reduce UI flicker, else new
+            id: existing?.id || crypto.randomUUID(),
+            // Preserve user-editable fields
+            notes: existing?.notes || [],
+            confidence: existing?.confidence || 3, // Default to 3 if new
+            initialRisk: existing?.initialRisk || 0,
+
+            // API Data is master for these:
+            pnl: t.pnl || 0,
+            pnlPercentage: 0, // Will be calc by UI or hook
+            fees: t.fees || 0,
+            fundingFees: t.fundingFees || 0
+        } as Trade;
+    });
 
     // OPTIONAL: Restore notes for open trades if matched by Symbol/Side
     // (Left simple for now: "Ghost fix" priority > "Notes persistence on open positions" priority)
