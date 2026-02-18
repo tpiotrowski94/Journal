@@ -20,13 +20,16 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
   const month = currentDate.getMonth();
 
   const dailyStats = useMemo(() => {
-    const map: Record<string, { pnl: number, roeSum: number, count: number }> = {};
+    const map: Record<string, { pnl: number, wins: number, losses: number, count: number }> = {};
     trades.filter(t => t.status === TradeStatus.CLOSED).forEach(t => {
       const d = new Date(t.exitDate || t.date).toISOString().split('T')[0];
-      if (!map[d]) map[d] = { pnl: 0, roeSum: 0, count: 0 };
+      if (!map[d]) map[d] = { pnl: 0, wins: 0, losses: 0, count: 0 };
       map[d].pnl += t.pnl;
-      map[d].roeSum += t.pnlPercentage;
       map[d].count += 1;
+      
+      // Count wins/losses based on PnL sign
+      if (t.pnl > 0) map[d].wins += 1;
+      if (t.pnl < 0) map[d].losses += 1;
     });
     return map;
   }, [trades]);
@@ -65,12 +68,11 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
       // Calculate Portfolio ROI for the day (PnL / Current Equity)
+      // Note: Equity changes daily, but here we use current equity as approximation for the view
       const portRoi = stats && portfolioEquity > 0 ? (stats.pnl / portfolioEquity) * 100 : 0;
       
-      // Determine precision (if value is very small like 0.005%, show 3 decimal places)
       const roiPrecision = Math.abs(portRoi) > 0 && Math.abs(portRoi) < 0.01 ? 4 : 2;
 
-      // Determine background color based on PnL
       let bgClass = 'bg-slate-800 hover:bg-slate-700';
       let borderClass = 'border-slate-700';
       
@@ -107,8 +109,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
                  <span className={`text-lg md:text-xl font-black tracking-tight ${stats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                    {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
                  </span>
-                 {/* Main Trade Result as Portfolio Growth % */}
-                 <span className={`text-[11px] font-black uppercase mt-0.5 ${portRoi >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
+                 <span className={`text-[10px] font-black uppercase mt-0.5 ${portRoi >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
                    {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
                  </span>
               </>
@@ -117,12 +118,22 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
             )}
           </div>
 
-          {/* Footer: ROE Sum (Secondary info) */}
+          {/* Footer: Win/Loss Ratio instead of misleading Sum ROE */}
           {stats ? (
-            <div className="flex justify-center border-t border-slate-700/30 pt-1.5 mt-1">
-               <span className="text-[8px] font-bold uppercase text-slate-500">
-                 Sum ROE: {stats.roeSum >= 0 ? '+' : ''}{Math.round(stats.roeSum)}%
-               </span>
+            <div className="flex justify-center items-center gap-3 border-t border-slate-700/30 pt-1.5 mt-1">
+               {stats.wins > 0 && (
+                 <span className="text-[9px] font-black text-emerald-500 uppercase flex items-center gap-1">
+                   <i className="fas fa-check text-[7px]"></i> {stats.wins}W
+                 </span>
+               )}
+               {stats.losses > 0 && (
+                 <span className="text-[9px] font-black text-rose-500 uppercase flex items-center gap-1">
+                   <i className="fas fa-times text-[7px]"></i> {stats.losses}L
+                 </span>
+               )}
+               {stats.wins === 0 && stats.losses === 0 && (
+                 <span className="text-[8px] text-slate-600 font-bold uppercase">Breakeven</span>
+               )}
             </div>
           ) : (
             <div className="h-4"></div>
