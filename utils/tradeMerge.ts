@@ -63,12 +63,23 @@ export const mergeTrades = (
     // 4. Process CLOSED Trades
     // STRATEGY: Merge history, deduplicate by externalId
 
+    // We only keep 'official' history trades (hl-trade-...). 
+    // We explicitly exclude 'hl-active-' trades from history to prevent duplicates if user manually changed status.
     const existingHistory = existingTrades.filter(t =>
-        t.externalId && t.externalId.toLowerCase().includes(addrLower) && t.status === TradeStatus.CLOSED
+        t.externalId &&
+        t.externalId.toLowerCase().includes(addrLower) &&
+        t.status === TradeStatus.CLOSED &&
+        !t.externalId.startsWith('hl-active-')
     );
 
     const existingHistoryMap = new Map(existingHistory.map(t => [t.externalId, t]));
     const mergedHistory: Trade[] = [...existingHistory];
+
+    // Find potential metadata sources (e.g. active trades that just closed)
+    // We use this to preserve notes/confidence when an active trade becomes a history trade.
+    const recentActiveTrades = existingTrades.filter(t =>
+        t.externalId && t.externalId.startsWith('hl-active-')
+    );
 
     incomingClosed.forEach(inc => {
         if (!inc.externalId) return;
@@ -79,15 +90,23 @@ export const mergeTrades = (
 
         if (!existingHistoryMap.has(inc.externalId)) {
             // New history trade found
+
+            // Try to find a precursor (active trade) to inherit metadata from
+            const precursor = recentActiveTrades.find(p =>
+                p.symbol === inc.symbol &&
+                p.type === inc.type
+                // We could match entry price or time, but Symbol+Type is usually unique enough for distinct active positions
+            );
+
             const { pnl, pnlPercentage } = calculatePnl(inc);
             mergedHistory.push({
                 ...inc,
-                id: crypto.randomUUID(),
-                notes: [{ id: crypto.randomUUID(), text: 'Imported history', date: new Date().toISOString() }],
-                confidence: 3,
+                id: precursor?.id || crypto.randomUUID(), // Keep ID if we can? Or better new? New is safer for history, but maybe notes link to ID? Notes are embedded.
+                notes: precursor?.notes || [],
+                confidence: precursor?.confidence || 3,
+                initialRisk: precursor?.initialRisk || 0,
                 pnl,
-                pnlPercentage,
-                initialRisk: 0
+                pnlPercentage
             } as Trade);
         }
     });

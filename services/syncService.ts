@@ -111,6 +111,8 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   }
 
   // C. Przetwarzanie fills per coin
+  const activePositionStartTimes = new Map<string, number>();
+
   Object.entries(coinGroups).forEach(([coin, coinFills]) => {
     // Sortujemy od najstarszych do najnowszych
     const sorted = [...coinFills].sort((a, b) => a.time - b.time);
@@ -248,7 +250,6 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           }
         }
 
-
         // Reset po zamknięciu
         currentBatch = [];
         accumulatedClosedPnl = 0;
@@ -275,11 +276,10 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       currentQty = nextQty;
     });
 
-    // Po przejściu historii, jeśli currentQty != 0, mamy otwartą pozycję.
-    // Pobieramy ją z 'assetPositions' w clearinghouse (sekcja A), więc tutaj nie musimy jej tworzyć,
-    // chyba że chcemy połączyć historię z aktywną pozycją. 
-    // Obecna implementacja w App.tsx łączy je po ID, ale HL active positions są pobierane w sekcji A syncService.
-    // Więc tutaj ignorujemy "ogon" historii.
+    // Capture start time for active position
+    if (Math.abs(currentQty) > 0.000001 && currentBatch.length > 0) {
+      activePositionStartTimes.set(coin, currentBatch[0].time);
+    }
   });
 
   // Dodajemy aktywne pozycje (pobrane z sekcji A na początku)
@@ -293,15 +293,18 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
         const levValue = parseFloat(pos.leverage?.value || "1");
         const mode = pos.leverage?.type === 'cross' ? MarginMode.CROSS : MarginMode.ISOLATED;
 
+        // Use detected start time or 0 if missing (adds stability vs random Date.now())
+        const startTime = activePositionStartTimes.get(coin) || 0;
+
         syncedTrades.push({
-          externalId: `hl-active-${symbol}-${userAddr}`,
+          externalId: `hl-active-${symbol}-${userAddr}-${startTime}`,
           symbol,
           type: szi > 0 ? TradeType.LONG : TradeType.SHORT,
           entryPrice: parseFloat(pos.entryPx),
           amount: Math.abs(szi),
           leverage: levValue,
           status: TradeStatus.OPEN,
-          date: new Date().toISOString(), // Data orientacyjna dla sortowania, w idealnym świecie bierzemy z historii
+          date: new Date(startTime || Date.now()).toISOString(),
           marginMode: mode,
           fees: 0,
           fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0"),
