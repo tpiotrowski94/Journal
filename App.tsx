@@ -126,10 +126,23 @@ const App: React.FC = () => {
 
   const autoSyncEnabled = activeWallet?.autoSync && activeWallet?.provider === SyncProvider.HYPERLIQUID;
 
+  // Fix for Stale Closure in Interval: Always point to the latest version of the function
+  const handleSyncWalletRef = useRef(handleSyncWallet);
+  useEffect(() => {
+    handleSyncWalletRef.current = handleSyncWallet;
+  }); // Updates on every render
+
   useEffect(() => {
     if (!autoSyncEnabled) return;
-    handleSyncWallet(true);
-    const timer = setInterval(() => { handleSyncWallet(true); }, 5000);
+
+    // Initial call
+    handleSyncWalletRef.current(true);
+
+    const timer = setInterval(() => {
+      // Always call the latest version
+      handleSyncWalletRef.current(true);
+    }, 5000);
+
     return () => clearInterval(timer);
   }, [autoSyncEnabled]);
 
