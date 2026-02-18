@@ -69,6 +69,14 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, onAdjustBalance, onUpdateI
       bg: 'bg-slate-800'
     },
     {
+      label: 'Win Rate',
+      value: `${stats.winRate.toFixed(1)}%`,
+      sub: `${stats.totalTrades} Trades`,
+      color: stats.winRate >= 50 ? 'text-emerald-400' : 'text-amber-400',
+      icon: 'fa-chart-pie',
+      bg: 'bg-slate-800'
+    },
+    {
       label: 'Total Fees/Fund',
       value: `-$${Math.abs(totalCosts).toFixed(2)}`,
       sub: `Cumulative Costs`,

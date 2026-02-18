@@ -8,7 +8,7 @@ interface TradingMantraProps {
 }
 
 const ICON_OPTIONS = [
-  "fa-chart-line", "fa-shield-halved", "fa-eye", "fa-clock", 
+  "fa-chart-line", "fa-shield-halved", "fa-eye", "fa-clock",
   "fa-ban", "fa-bolt", "fa-brain", "fa-check-double",
   "fa-triangle-exclamation", "fa-layer-group", "fa-bullseye", "fa-microchip",
   "fa-arrow-trend-up", "fa-magnifying-glass-chart", "fa-water", "fa-fire"
@@ -24,11 +24,11 @@ const DEFAULT_MANTRA = "My strategy is based on trendlines, indicators, and liqu
 
 const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWallet }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<{ 
-    mantra: string, 
+  const [editData, setEditData] = useState<{
+    mantra: string,
     pillars: TradingPillar[],
     showMantra: boolean,
-    showPillars: boolean 
+    showPillars: boolean
   }>({
     mantra: '',
     pillars: [],
@@ -36,16 +36,31 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
     showPillars: true
   });
 
+  // Ref to track which wallet we are currently editing
+  const editingWalletIdRef = React.useRef<string | null>(null);
+
   useEffect(() => {
     if (activeWallet) {
+      // If we are editing and the wallet hasn't changed, don't overwrite user input
+      if (isEditing && editingWalletIdRef.current === activeWallet.id) {
+        return;
+      }
+
+      // precise initialization
       setEditData({
         mantra: activeWallet.mantra || DEFAULT_MANTRA,
         pillars: activeWallet.pillars || DEFAULT_PILLARS,
         showMantra: activeWallet.showMantra !== undefined ? activeWallet.showMantra : true,
         showPillars: activeWallet.showPillars !== undefined ? activeWallet.showPillars : true
       });
+
+      // If we switched wallets, exit edit mode or reset ref
+      if (editingWalletIdRef.current !== activeWallet.id) {
+        setIsEditing(false);
+        editingWalletIdRef.current = activeWallet.id;
+      }
     }
-  }, [activeWallet]);
+  }, [activeWallet, isEditing]);
 
   if (!activeWallet) return null;
 
@@ -84,19 +99,19 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
               <h3 className="text-lg font-black text-white uppercase italic tracking-tighter leading-none">Trading Plan Config</h3>
               <div className="flex gap-4 mt-2">
                 <label className="flex items-center gap-2 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
-                    checked={editData.showMantra} 
-                    onChange={e => setEditData({...editData, showMantra: e.target.checked})}
+                  <input
+                    type="checkbox"
+                    checked={editData.showMantra}
+                    onChange={e => setEditData({ ...editData, showMantra: e.target.checked })}
                     className="w-3 h-3 rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-blue-500"
                   />
                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest group-hover:text-white transition-colors">Description</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
-                    checked={editData.showPillars} 
-                    onChange={e => setEditData({...editData, showPillars: e.target.checked})}
+                  <input
+                    type="checkbox"
+                    checked={editData.showPillars}
+                    onChange={e => setEditData({ ...editData, showPillars: e.target.checked })}
                     className="w-3 h-3 rounded border-slate-700 bg-slate-900 text-emerald-600 focus:ring-emerald-500"
                   />
                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest group-hover:text-white transition-colors">Checklist</span>
@@ -115,7 +130,7 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
                 <label className="block text-[8px] font-black text-blue-400 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
                   <i className="fas fa-scroll"></i> Strategy & Mantra
                 </label>
-                <textarea 
+                <textarea
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white text-xs font-medium h-24 outline-none focus:ring-1 focus:ring-blue-500 shadow-inner resize-y"
                   value={editData.mantra}
                   onChange={e => setEditData({ ...editData, mantra: e.target.value })}
@@ -128,20 +143,20 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {editData.pillars.map((p, i) => (
                   <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-xl space-y-3 relative group/pillar">
-                    <button 
+                    <button
                       onClick={() => removePillar(i)}
                       className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-[8px] shadow-lg border border-slate-800 hover:scale-110 transition-transform"
                     >
                       <i className="fas fa-trash-alt"></i>
                     </button>
-                    <input 
-                      className="w-full bg-slate-800 rounded-md px-2 py-1.5 text-white font-black uppercase text-[10px] outline-none border border-transparent focus:border-blue-500" 
-                      value={p.title} 
+                    <input
+                      className="w-full bg-slate-800 rounded-md px-2 py-1.5 text-white font-black uppercase text-[10px] outline-none border border-transparent focus:border-blue-500"
+                      value={p.title}
                       onChange={e => updatePillar(i, 'title', e.target.value)}
                       placeholder="Title"
                     />
-                    <textarea 
-                      className="w-full bg-slate-800 rounded-md px-2 py-1.5 text-[10px] text-slate-400 font-medium outline-none h-14 resize-y border border-transparent focus:border-blue-500" 
+                    <textarea
+                      className="w-full bg-slate-800 rounded-md px-2 py-1.5 text-[10px] text-slate-400 font-medium outline-none h-14 resize-y border border-transparent focus:border-blue-500"
                       value={p.description}
                       onChange={e => updatePillar(i, 'description', e.target.value)}
                       placeholder="Description..."
@@ -171,7 +186,7 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
       ) : (
         <div className={`grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch ${(!showMantra && !showPillars) ? 'hidden' : ''}`}>
           {showMantra && (
-            <div 
+            <div
               onClick={() => setIsEditing(true)}
               className={`${showPillars ? 'md:col-span-4' : 'md:col-span-12'} group relative bg-slate-800/30 border border-slate-700/50 rounded-2xl p-5 flex flex-col cursor-pointer hover:bg-slate-800/50 hover:border-blue-500/30 transition-all shadow-md overflow-hidden min-h-[100px]`}
             >
@@ -191,7 +206,7 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
           )}
 
           {showPillars && (
-            <div 
+            <div
               onClick={() => setIsEditing(true)}
               className={`${showMantra ? 'md:col-span-8' : 'md:col-span-12'} group relative bg-slate-900/30 border border-slate-800/80 rounded-2xl p-5 flex flex-col cursor-pointer hover:bg-slate-900/50 hover:border-emerald-500/30 transition-all shadow-md`}
             >
@@ -225,12 +240,12 @@ const TradingMantra: React.FC<TradingMantraProps> = ({ activeWallet, onUpdateWal
           )}
         </div>
       )}
-      
+
       {(!isEditing && !showMantra && !showPillars) && (
         <div className="w-full py-4 flex justify-center">
-           <button onClick={() => setIsEditing(true)} className="px-6 py-2 bg-slate-800 border border-slate-700 rounded-xl text-[8px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-400 hover:border-blue-500/50 transition-all">
-             <i className="fas fa-plus-circle mr-2"></i> Configure Trading Plan
-           </button>
+          <button onClick={() => setIsEditing(true)} className="px-6 py-2 bg-slate-800 border border-slate-700 rounded-xl text-[8px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-400 hover:border-blue-500/50 transition-all">
+            <i className="fas fa-plus-circle mr-2"></i> Configure Trading Plan
+          </button>
         </div>
       )}
     </div>
