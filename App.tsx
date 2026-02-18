@@ -63,6 +63,15 @@ const App: React.FC = () => {
     activeWalletIdRef.current = activeWalletId;
   }, [activeWalletId]);
 
+  // Fix for "Edit Race Condition":
+  // If user edits a trade (Note/Confidence) while Sync is in progress (awaiting API),
+  // the closure would remember the OLD trades and overwrite the user's edit with the sync result.
+  // We must access the LATEST trades state at the moment of MERGE.
+  const tradesRef = useRef(trades);
+  useEffect(() => {
+    tradesRef.current = trades;
+  }, [trades]);
+
   const handleSyncWallet = async (isAuto: boolean = false) => {
     // Capture the wallet ID at the start of the operation
     const currentSyncWalletId = activeWallet?.id;
@@ -103,8 +112,9 @@ const App: React.FC = () => {
         }
       }
 
-      // Merge Logic (The Fix)
-      const mergedTrades = mergeTrades(trades, syncResult, activeWallet.address, historyCutoff);
+      // Merge Logic (The Fix using Ref for latest state)
+      // Use tradesRef.current instead of 'trades' to include any edits made during the await
+      const mergedTrades = mergeTrades(tradesRef.current, syncResult, activeWallet.address, historyCutoff);
       saveTrades(mergedTrades);
 
       // We need to re-calculate PnL sum for balance reconciliation immediately
