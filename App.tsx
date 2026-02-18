@@ -57,13 +57,32 @@ const App: React.FC = () => {
     checkKey();
   }, []);
 
+  // Fix for Stale Async Closure: Track activeWalletId in a Ref
+  const activeWalletIdRef = useRef(activeWalletId);
+  useEffect(() => {
+    activeWalletIdRef.current = activeWalletId;
+  }, [activeWalletId]);
+
   const handleSyncWallet = async (isAuto: boolean = false) => {
+    // Capture the wallet ID at the start of the operation
+    const currentSyncWalletId = activeWallet?.id;
+
     if (!activeWallet?.address || activeWallet.provider === SyncProvider.MANUAL || isSyncing) return;
+
+    // Safety check: if no wallet is selected or ID is missing
+    if (!currentSyncWalletId) return;
 
     if (!isAuto) setIsSyncing(true);
 
     try {
       const syncResult = await syncHyperliquidData(activeWallet.address, activeWallet.historyStartDate);
+
+      // CRITICAL CHECK: Before applying any state changes, ensure we are still on the same wallet!
+      if (activeWalletIdRef.current !== currentSyncWalletId) {
+        console.warn(`Sync aborted: User switched from ${currentSyncWalletId} to ${activeWalletIdRef.current}`);
+        return; // Abort: The user switched wallets while we were fetching
+      }
+
 
       // Update Balance Logic
       // CurrentValue = Initial + PnL + Adjustment
@@ -144,7 +163,7 @@ const App: React.FC = () => {
     }, 5000);
 
     return () => clearInterval(timer);
-  }, [autoSyncEnabled]);
+  }, [autoSyncEnabled, activeWalletId]);
 
   const handleExportBackup = () => {
     // Re-use logic or move to utils
