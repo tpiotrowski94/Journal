@@ -64,10 +64,12 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
       const stats = dailyStats[dateKey];
       const isToday = new Date().toISOString().split('T')[0] === dateKey;
       
-      // Calculate Portfolio ROI for the day (PnL / Equity)
-      // Note: Using current equity for simplicity, ideally should be equity at start of day
+      // Calculate Portfolio ROI for the day (PnL / Current Equity)
       const portRoi = stats && portfolioEquity > 0 ? (stats.pnl / portfolioEquity) * 100 : 0;
       
+      // Determine precision (if value is very small like 0.005%, show 3 decimal places)
+      const roiPrecision = Math.abs(portRoi) > 0 && Math.abs(portRoi) < 0.01 ? 4 : 2;
+
       // Determine background color based on PnL
       let bgClass = 'bg-slate-800 hover:bg-slate-700';
       let borderClass = 'border-slate-700';
@@ -107,7 +109,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
                  </span>
                  {/* Main Trade Result as Portfolio Growth % */}
                  <span className={`text-[11px] font-black uppercase mt-0.5 ${portRoi >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
-                   {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(2)}% ROI
+                   {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
                  </span>
               </>
             ) : (

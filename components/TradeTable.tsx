@@ -176,10 +176,8 @@ const TradeTable: React.FC<TradeTableProps> = ({
                 // 2. Gross ROE (Tak jak na giełdzie: Gross PnL / Margin)
                 const grossRoe = marginVal > 0 ? (grossPnl / marginVal) * 100 : 0;
 
-                // 3. Price Move % (Ile ruszyła się cena aktywa)
-                const priceMovePct = (entryVal > 0 && trade.exitPrice) 
-                    ? ((Number(trade.exitPrice) - entryVal) / entryVal) * 100 * (trade.type === TradeType.LONG ? 1 : -1)
-                    : 0;
+                // 3. Net ROE (PnL po opłatach / Margin)
+                const netRoe = marginVal > 0 ? (pnlVal / marginVal) * 100 : 0;
 
                 // Koszty przy wyjściu (jeśli były doliczane jako incremental)
                 const exitFeesVal = Number(trade.exitFees) || 0;
@@ -290,14 +288,14 @@ const TradeTable: React.FC<TradeTableProps> = ({
                               {grossRoe >= 0 ? '+' : ''}{grossRoe.toFixed(2)}%
                             </div>
                             
-                            {/* 2. Price Movement - Removed Label "Move" */}
-                            <div className={`text-[9px] font-bold uppercase ${priceMovePct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                               {priceMovePct >= 0 ? '+' : ''}{priceMovePct.toFixed(2)}%
+                            {/* 2. Net PnL (Real Money) - Bigger Font */}
+                            <div className={`text-[13px] font-black mt-1 ${pnlVal >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                              {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)} $
                             </div>
 
-                            {/* 3. Net PnL (Real Money) - Removed Label "Net" */}
-                            <div className={`text-[11px] font-black mt-1 px-1.5 py-0.5 rounded border border-slate-700/50 ${pnlVal >= 0 ? 'text-emerald-500 bg-emerald-500/5' : 'text-rose-500 bg-rose-500/5'}`}>
-                              {pnlVal >= 0 ? '+' : ''}{pnlVal.toFixed(2)} $
+                            {/* 3. Net ROI % (PnL after fees / Margin) */}
+                            <div className={`text-[9px] font-bold uppercase opacity-70 mt-0.5 ${netRoe >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                               Net: {netRoe >= 0 ? '+' : ''}{netRoe.toFixed(2)}%
                             </div>
                           </div>
                         )}
