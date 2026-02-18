@@ -36,7 +36,6 @@ const App: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Funkcja pomocnicza do natychmiastowego czyszczenia starych transakcji przy ładowaniu
   const loadAndPruneTrades = useCallback((walletId: string, currentWallets: Wallet[]) => {
     const rawTrades = dataService.loadTrades(walletId);
     const wallet = currentWallets.find(w => w.id === walletId);
@@ -50,9 +49,7 @@ const App: React.FC = () => {
       return rawTrades;
     }
 
-    // Natychmiastowe filtrowanie przy odczycie z dysku
     return rawTrades.filter(t => {
-      // Jeśli to transakcja importowana (ma externalId) i jest starsza niż cutoff -> usuń
       if (t.externalId) {
         const tradeTime = new Date(t.exitDate || t.date).getTime();
         if (tradeTime < cutoff) {
@@ -79,7 +76,6 @@ const App: React.FC = () => {
       setWallets(loadedWallets);
       const activeId = dataService.getActiveWalletId() || loadedWallets[0].id;
       setActiveWalletId(activeId);
-      // Używamy loadAndPrune zamiast surowego loadTrades
       setTrades(loadAndPruneTrades(activeId, loadedWallets));
     } else {
       const defaultWallet: Wallet = {
@@ -100,10 +96,20 @@ const App: React.FC = () => {
     const entry = Number(trade.entryPrice) || 0, amount = Number(trade.amount) || 0;
     const exit = trade.exitPrice ?? null, fees = Number(trade.fees) || 0, funding = Number(trade.fundingFees) || 0, lev = Number(trade.leverage) || 1;
     if (entry === 0 || amount === 0 || exit === null) return { pnl: 0, pnlPercentage: 0 };
-    const grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
-    const pnl = grossPnl - fees - funding;
+    
+    // Jeśli trade ma już PnL z API (Hyperliquid sync), użyj go jako bazy gross PnL
+    // W przeciwnym razie oblicz ze średniej
+    let grossPnl = 0;
+    if (trade.pnl !== undefined && trade.externalId) {
+       // trade.pnl z syncService to wartość 'closedPnl' (realized gross)
+       grossPnl = trade.pnl;
+    } else {
+       grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
+    }
+
+    const netPnl = grossPnl - fees - funding;
     const margin = (entry * amount) / lev;
-    return { pnl: isFinite(pnl) ? pnl : 0, pnlPercentage: margin !== 0 ? (pnl / margin) * 100 : 0 };
+    return { pnl: isFinite(netPnl) ? netPnl : 0, pnlPercentage: margin !== 0 ? (netPnl / margin) * 100 : 0 };
   }, []);
 
   const handleSyncWallet = useCallback(async (isAuto: boolean = false) => {
@@ -122,11 +128,14 @@ const App: React.FC = () => {
       let pruneCutoffTime = 0;
       if (wallet.historyStartDate) {
         const parsed = new Date(wallet.historyStartDate).getTime();
-        if (!isNaN(parsed) && parsed > 0) pruneCutoffTime = parsed;
+        // Sprawdź czy data nie jest w przyszłości (np. 2026), jeśli tak, ignoruj cutoff (użytkownik pomylił datę)
+        // lub zostaw 0, aby pobrać wszystko. Tutaj zakładamy, że jeśli data > now + 1 dzień, to błąd.
+        if (!isNaN(parsed) && parsed > 0 && parsed < (Date.now() + 86400000)) {
+          pruneCutoffTime = parsed;
+        }
       }
 
       setTrades(prevTrades => {
-        // --- PRE-PROCESSING: Leverage Preservation ---
         const openTradeLeverages = new Map<string, number>();
         prevTrades.forEach(t => {
           if (t.status === TradeStatus.OPEN && t.leverage > 1) {
@@ -134,14 +143,12 @@ const App: React.FC = () => {
           }
         });
 
-        // --- ETAP 1: FILTERING (Sanity Check dla nowych danych) ---
         const validNewTrades = syncedTrades.filter(t => {
            if (!pruneCutoffTime) return true;
            const tTime = new Date(t.exitDate || t.date || 0).getTime();
            return tTime >= pruneCutoffTime;
         });
 
-        // Aplikuj zapamiętaną dźwignię
         validNewTrades.forEach(newT => {
           if (newT.status === TradeStatus.CLOSED && (!newT.leverage || newT.leverage === 1) && newT.symbol) {
             const preservedLeverage = openTradeLeverages.get(newT.symbol);
@@ -151,13 +158,11 @@ const App: React.FC = () => {
           }
         });
 
-        // Mapa nowych transakcji
         const incomingMap = new Map(validNewTrades.map(t => [t.externalId, t]));
         
         const mergedTrades: Trade[] = [];
         const processedExternalIds = new Set<string>();
 
-        // --- ETAP 2: PRZETWARZANIE LOKALNEGO STANU ---
         prevTrades.forEach(t => {
            if (!t.externalId) {
              mergedTrades.push(t);
@@ -178,8 +183,17 @@ const App: React.FC = () => {
              if (incomingTrade.leverage === 1 && t.leverage > 1) {
                 finalLeverage = t.leverage;
              }
+             // Tutaj calculatePnl tylko odejmie fees/funding od już ustawionego gross PnL
              const { pnl, pnlPercentage } = calculatePnl({ ...incomingTrade, leverage: finalLeverage });
-             mergedTrades.push({ ...t, ...incomingTrade, leverage: finalLeverage, pnl, pnlPercentage } as Trade);
+             
+             // Zachowaj notatki
+             mergedTrades.push({ 
+                ...t, 
+                ...incomingTrade, 
+                leverage: finalLeverage, 
+                pnl, 
+                pnlPercentage 
+             } as Trade);
              processedExternalIds.add(t.externalId);
            } else {
              if (t.status === TradeStatus.OPEN) return; 
@@ -187,7 +201,6 @@ const App: React.FC = () => {
            }
         });
 
-        // --- ETAP 3: DODAWANIE NOWYCH ---
         validNewTrades.forEach(st => {
            if (st.externalId && !processedExternalIds.has(st.externalId)) {
               const { pnl, pnlPercentage } = calculatePnl(st);
@@ -209,7 +222,6 @@ const App: React.FC = () => {
         const finalTradeList = mergedTrades;
         dataService.saveTrades(currentId, finalTradeList);
 
-        // --- ETAP 4: AKTUALIZACJA SALDA ---
         if (accountValue >= 0) {
             setWallets(prev => {
                 const currentW = prev.find(w => w.id === currentId);
@@ -222,15 +234,18 @@ const App: React.FC = () => {
                 let newInitial = currentW.initialBalance;
                 let newAdjustment = currentW.balanceAdjustment;
 
-                // JEŚLI użytkownik nie ustawił Initial Balance (jest 0), obliczamy go wstecznie
-                if (currentW.initialBalance === 0) {
-                    newInitial = accountValue - visibleTotalPnl - currentW.balanceAdjustment;
+                // Logika Balance Reconciliation:
+                // CurrentValue = Initial + PnL + Adjustment
+                // Adjustment = CurrentValue - Initial - PnL
+                
+                // Jeśli użytkownik NIE ustawił initial (jest 0), to obliczamy Initial wstecznie, żeby Adjustment był 0 (lub stary)
+                if (currentW.initialBalance <= 0) {
+                    newInitial = accountValue - visibleTotalPnl;
+                    // Reset adjustment jeśli initial jest auto-kalkulowany
+                    newAdjustment = 0;
                 } else {
-                    // JEŚLI użytkownik ustawił Initial Balance (np. wpłacił 1000$), 
-                    // a API zwraca inne saldo niż (Initial + PnL),
-                    // to różnicę zapisujemy w Adjustment (np. wypłaty, straty spoza historii)
-                    // Wzór: Current = Initial + PnL + Adjustment
-                    // Adjustment = Current - Initial - PnL
+                    // Jeśli użytkownik ustawił Initial, ufamy mu.
+                    // Dostosowujemy Adjustment, aby wynik (Account Value) się zgadzał.
                     newAdjustment = accountValue - currentW.initialBalance - visibleTotalPnl;
                 }
 
