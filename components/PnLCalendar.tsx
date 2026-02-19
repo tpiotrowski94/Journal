@@ -65,7 +65,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
     const startOffset = startDayOfMonth(year, month);
 
     for (let i = 0; i < startOffset; i++) {
-      days.push(<div key={`empty-${i}`} className="h-32 bg-slate-800/20 rounded-xl" />);
+      days.push(<div key={`empty-${i}`} className="h-40 bg-slate-800/20 rounded-xl" />);
     }
 
     for (let d = 1; d <= totalDays; d++) {
@@ -96,61 +96,61 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
       days.push(
         <div
           key={d}
-          className={`h-32 p-3 border rounded-xl flex flex-col justify-between transition-all relative overflow-hidden group ${bgClass} ${borderClass}`}
+          className={`h-40 p-2 border rounded-xl flex flex-col justify-between transition-all relative overflow-hidden group ${bgClass} ${borderClass}`}
         >
           {/* Header: Date & Count */}
           <div className="flex justify-between items-start">
-            <span className={`text-sm font-black ${isToday ? 'text-blue-400' : 'text-slate-500'}`}>{d}</span>
+            <span className={`text-xs font-black ${isToday ? 'text-blue-400' : 'text-slate-500'}`}>{d}</span>
             {stats && (
-              <div className="bg-slate-900/50 px-1.5 rounded text-[9px] font-bold text-slate-400">
-                {stats.count} trd
+              <div className="bg-slate-900/50 px-1.5 rounded text-[8px] font-bold text-slate-400">
+                {stats.count}
               </div>
             )}
           </div>
 
           {/* Middle: ROI %, PnL $, Portfolio Eq % */}
-          <div className="flex-1 flex flex-col items-center justify-center py-1">
+          <div className="flex-1 flex flex-col items-center justify-center py-0.5 gap-0.5">
             {stats ? (
               <>
                 {/* 1. Sum of Trade ROIs (Accumulated %) */}
-                <span className={`text-lg md:text-xl font-black tracking-tight ${stats.roiSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <span className={`text-lg font-black tracking-tight leading-none ${stats.roiSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {stats.roiSum >= 0 ? '+' : ''}{stats.roiSum.toFixed(2)}%
                 </span>
 
                 {/* 2. PnL Dollars */}
-                <span className={`text-sm font-bold mt-0.5 ${stats.pnl >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
+                <span className={`text-xs font-bold ${stats.pnl >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
                   {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
                 </span>
 
                 {/* 3. Portfolio Impact */}
-                <span className={`text-[9px] font-black uppercase mt-1 opacity-60 ${portRoi >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                <span className={`text-[8px] font-black uppercase mt-0.5 opacity-60 ${portRoi >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                   Eq: {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
                 </span>
               </>
             ) : (
-              <span className="text-slate-700 text-2xl font-black opacity-20">-</span>
+              <span className="text-slate-700 text-xl font-black opacity-20">-</span>
             )}
           </div>
 
           {/* Footer: Win/Loss Ratio */}
           {stats ? (
-            <div className="flex justify-center items-center gap-3 border-t border-slate-700/30 pt-1.5 mt-1">
+            <div className="flex justify-center items-center gap-2 border-t border-slate-700/30 pt-1 mt-0.5">
               {stats.wins > 0 && (
-                <span className="text-[9px] font-black text-emerald-500 uppercase flex items-center gap-1">
-                  <i className="fas fa-check text-[7px]"></i> {stats.wins}W
+                <span className="text-[8px] font-black text-emerald-500 uppercase flex items-center gap-0.5">
+                  <i className="fas fa-check text-[6px]"></i> {stats.wins}
                 </span>
               )}
               {stats.losses > 0 && (
-                <span className="text-[9px] font-black text-rose-500 uppercase flex items-center gap-1">
-                  <i className="fas fa-times text-[7px]"></i> {stats.losses}L
+                <span className="text-[8px] font-black text-rose-500 uppercase flex items-center gap-0.5">
+                  <i className="fas fa-times text-[6px]"></i> {stats.losses}
                 </span>
               )}
               {stats.wins === 0 && stats.losses === 0 && (
-                <span className="text-[8px] text-slate-600 font-bold uppercase">Breakeven</span>
+                <span className="text-[7px] text-slate-600 font-bold uppercase">Break</span>
               )}
             </div>
           ) : (
-            <div className="h-4"></div>
+            <div className="h-3"></div>
           )}
         </div>
       );
