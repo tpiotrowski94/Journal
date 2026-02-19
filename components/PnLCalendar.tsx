@@ -20,7 +20,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
   const month = currentDate.getMonth();
 
   const dailyStats = useMemo(() => {
-    const map: Record<string, { pnl: number, wins: number, losses: number, count: number }> = {};
+    const map: Record<string, { pnl: number, roiSum: number, wins: number, losses: number, count: number }> = {};
     trades.filter(t => t.status === TradeStatus.CLOSED).forEach(t => {
       const dateObj = new Date(t.exitDate || t.date);
       // Use local date string in YYYY-MM-DD format manually to avoid timezone shifts
@@ -28,8 +28,9 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
       const month = String(dateObj.getMonth() + 1).padStart(2, '0');
       const day = String(dateObj.getDate()).padStart(2, '0');
       const d = `${year}-${month}-${day}`;
-      if (!map[d]) map[d] = { pnl: 0, wins: 0, losses: 0, count: 0 };
+      if (!map[d]) map[d] = { pnl: 0, roiSum: 0, wins: 0, losses: 0, count: 0 };
       map[d].pnl += t.pnl;
+      map[d].roiSum += (t.pnlPercentage || 0); // Accumulate Trade Return %
       map[d].count += 1;
 
       // Count wins/losses based on PnL sign
@@ -107,15 +108,23 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
             )}
           </div>
 
-          {/* Middle: Big PnL */}
+          {/* Middle: ROI %, PnL $, Portfolio Eq % */}
           <div className="flex-1 flex flex-col items-center justify-center py-1">
             {stats ? (
               <>
-                <span className={`text-lg md:text-xl font-black tracking-tight ${stats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {/* 1. Sum of Trade ROIs (Accumulated %) */}
+                <span className={`text-lg md:text-xl font-black tracking-tight ${stats.roiSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {stats.roiSum >= 0 ? '+' : ''}{stats.roiSum.toFixed(2)}%
+                </span>
+
+                {/* 2. PnL Dollars */}
+                <span className={`text-sm font-bold mt-0.5 ${stats.pnl >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
                   {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
                 </span>
-                <span className={`text-[10px] font-black uppercase mt-0.5 ${portRoi >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
-                  {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
+
+                {/* 3. Portfolio Impact */}
+                <span className={`text-[9px] font-black uppercase mt-1 opacity-60 ${portRoi >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  Eq: {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
                 </span>
               </>
             ) : (
@@ -123,7 +132,7 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
             )}
           </div>
 
-          {/* Footer: Win/Loss Ratio instead of misleading Sum ROE */}
+          {/* Footer: Win/Loss Ratio */}
           {stats ? (
             <div className="flex justify-center items-center gap-3 border-t border-slate-700/30 pt-1.5 mt-1">
               {stats.wins > 0 && (
