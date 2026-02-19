@@ -16,9 +16,8 @@ export const calculatePnl = (trade: Partial<Trade>): { pnl: number, pnlPercentag
     // Jeśli trade ma już PnL z API (Hyperliquid sync), użyj go jako bazy gross PnL
     // W przeciwnym razie oblicz ze średniej
     let grossPnl = 0;
-    if (trade.pnl !== undefined && trade.externalId) {
-        // trade.pnl z syncService to wartość 'closedPnl' (realized gross)
-        grossPnl = trade.pnl;
+    if (trade.grossPnl !== undefined) {
+        grossPnl = trade.grossPnl;
     } else {
         grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
     }

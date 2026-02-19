@@ -243,6 +243,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
               fees: feesTotal,
               fundingFees: 0, // Funding jest często osobno w HL, tutaj uproszczenie
               pnl: accumulatedClosedPnl, // To jest Gross PnL z API (App odejmie fees)
+              grossPnl: accumulatedClosedPnl,
               date: new Date(startTime).toISOString(),
               exitDate: new Date(endTime).toISOString(),
               confidence: 3
@@ -306,9 +307,10 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           status: TradeStatus.OPEN,
           date: new Date(startTime || Date.now()).toISOString(),
           marginMode: mode,
-          fees: 0,
+          fees: 0, // Fees are 0 for active unless realized, but maybe we should track open fees?
           fundingFees: parseFloat(pos.cumFunding?.sinceOpen || "0"),
-          pnl: parseFloat(pos.unrealizedPnl || "0")
+          pnl: parseFloat(pos.unrealizedPnl || "0"),
+          grossPnl: parseFloat(pos.unrealizedPnl || "0")
         });
       }
     });

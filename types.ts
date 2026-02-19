@@ -48,6 +48,7 @@ export interface Trade {
   date: string;
   notes: NoteEntry[];
   pnl: number;
+  grossPnl?: number;
   pnlPercentage: number;
   confidence: number;
   initialRisk: number | null;
