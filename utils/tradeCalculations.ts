@@ -11,19 +11,25 @@ export const calculatePnl = (trade: Partial<Trade>): { pnl: number, pnlPercentag
     const exitFees = Number(trade.exitFees) || 0;
     const exitFunding = Number(trade.exitFundingFees) || 0;
 
-    if (entry === 0 || amount === 0 || exit === null || exit <= 0) return { pnl: 0, pnlPercentage: 0 };
-
-    // Jeśli trade ma już PnL z API (Hyperliquid sync), użyj go jako bazy gross PnL
-    // W przeciwnym razie oblicz ze średniej
-    let grossPnl = 0;
+    // Priority 1: Use grossPnl if provided (from Sync Service)
     if (trade.grossPnl !== undefined) {
-        grossPnl = trade.grossPnl;
-    } else {
-        grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
+        const netPnl = trade.grossPnl - fees - funding - exitFees - exitFunding;
+        const margin = (entry * amount) / lev;
+        return {
+            pnl: isFinite(netPnl) ? netPnl : 0,
+            pnlPercentage: margin !== 0 ? (netPnl / margin) * 100 : 0
+        };
     }
 
+    // Priority 2: Calculate from prices
+    // If exit is missing or 0, we can't calculate from price reliably.
+    // Return 0 to avoid massive "ghost losses" like -1000%
+    if (exit === null || exit <= 0) return { pnl: 0, pnlPercentage: 0 };
+
+    const grossPnl = trade.type === TradeType.LONG ? (exit - entry) * amount : (entry - exit) * amount;
     const netPnl = grossPnl - fees - funding - exitFees - exitFunding;
     const margin = (entry * amount) / lev;
+
     return {
         pnl: isFinite(netPnl) ? netPnl : 0,
         pnlPercentage: margin !== 0 ? (netPnl / margin) * 100 : 0
