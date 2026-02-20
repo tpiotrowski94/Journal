@@ -338,23 +338,25 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           if (!delta) return;
 
           const deltaType: string = (delta.type || '').toLowerCase();
-          const usdc = parseFloat(delta.usdc || delta.amount || '0');
+          // 'send' uses delta.amount or delta.usdcValue; others use delta.usdc
+          const usdc = parseFloat(delta.usdc || delta.usdcValue || delta.amount || '0');
           if (usdc === 0) return;
 
+          // Only process USDC transfers ('send' has a 'token' field for non-USDC)
+          if (deltaType === 'send' && delta.token && delta.token !== 'USDC') return;
+
           let transferType: 'DEPOSIT' | 'WITHDRAWAL' | null = null;
+          const dest = (delta.destination || '').toLowerCase();
+          const from = (delta.user || '').toLowerCase();
 
           if (deltaType === 'deposit') {
-            // On-chain deposit → HL perp account
+            // On-chain → HL perp account
             transferType = 'DEPOSIT';
           } else if (deltaType === 'withdraw' || deltaType === 'withdrawal') {
-            // Withdrawal from HL to on-chain wallet
+            // HL → on-chain
             transferType = 'WITHDRAWAL';
-          } else if (deltaType === 'internaltransfer') {
-            // Transfer between HL accounts:
-            // - incoming if destination === userAddr
-            // - outgoing if user === userAddr
-            const dest = (delta.destination || '').toLowerCase();
-            const from = (delta.user || '').toLowerCase();
+          } else if (deltaType === 'internaltransfer' || deltaType === 'send') {
+            // Transfer between accounts (HL-to-HL or spot-to-perp)
             if (dest === userAddr) {
               transferType = 'DEPOSIT';
             } else if (from === userAddr) {
@@ -377,6 +379,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   } catch (e) {
     console.warn('Failed to fetch ledger updates', e);
   }
+
 
 
   return {
