@@ -7,43 +7,62 @@ interface ChartsProps {
   trades: Trade[];
   initialBalance: number;
   transfers?: Transfer[];
+  historyStartDate?: string;
 }
 
-// Custom label for transfer reference lines
+// Custom label rendered inside the SVG for transfer reference lines
 const TransferLabel = ({ viewBox, type, amount }: any) => {
   const { x, y } = viewBox;
   const isDeposit = type === 'DEPOSIT';
   const color = isDeposit ? '#10b981' : '#f43f5e';
   const icon = isDeposit ? '↑' : '↓';
+  const label = `${icon} $${amount >= 1000 ? (amount / 1000).toFixed(1) + 'k' : amount.toFixed(0)}`;
   return (
     <g>
-      <rect x={x - 28} y={y - 22} width={56} height={18} rx={6} fill="#0f172a" stroke={color} strokeWidth={1} opacity={0.95} />
-      <text x={x} y={y - 9} textAnchor="middle" fill={color} fontSize={10} fontWeight="900">
-        {icon} ${Math.abs(amount) >= 1000 ? (amount / 1000).toFixed(1) + 'k' : amount.toFixed(0)}
-      </text>
+      <rect x={x - 30} y={y - 24} width={60} height={18} rx={5} fill="#0f172a" stroke={color} strokeWidth={1} opacity={0.95} />
+      <text x={x} y={y - 11} textAnchor="middle" fill={color} fontSize={10} fontWeight="900">{label}</text>
     </g>
   );
 };
 
-const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] }) => {
-  // Sort closed trades by exit date
+const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [], historyStartDate }) => {
+  // Determine the cutoff timestamp – same logic as syncService
+  const cutoffMs = historyStartDate ? new Date(historyStartDate).getTime() : 0;
+
+  // Sort closed trades by exit date, respecting historyStartDate
   const closedTrades = [...trades]
-    .filter(t => t.status === 'CLOSED')
+    .filter(t => {
+      if (t.status !== 'CLOSED') return false;
+      if (cutoffMs <= 0) return true;
+      const tradeTime = new Date(t.exitDate || t.date).getTime();
+      return tradeTime >= cutoffMs;
+    })
     .sort((a, b) => new Date(a.exitDate || a.date).getTime() - new Date(b.exitDate || b.date).getTime());
 
-  // Build unified timeline of trades + transfers
-  type ChartPoint = { timestamp: number; label: string; dateShort: string; equity: number; isTransfer?: boolean; transferType?: string; transferAmount?: number };
-  const points: ChartPoint[] = [];
+  // Filter transfers to history window too
+  const visibleTransfers = transfers.filter(tr => {
+    if (cutoffMs <= 0) return true;
+    return new Date(tr.date + 'T00:00:00').getTime() >= cutoffMs;
+  });
 
-  // Merge all events sorted by time
-  type Ev = { time: number; pnlDelta: number; capitalDelta: number; isTransfer: boolean; transferType?: string; transferAmount?: number; dateShort: string; label: string };
+  // Build unified timeline
+  type Ev = {
+    time: number;
+    pnlDelta: number;
+    capitalDelta: number;
+    isTransfer: boolean;
+    transferType?: string;
+    transferAmount?: number;
+    dateShort: string;
+    label: string;
+  };
+
   const allEvents: Ev[] = [];
 
   closedTrades.forEach(trade => {
-    const t = new Date(trade.exitDate || trade.date).getTime();
     const d = new Date(trade.exitDate || trade.date);
     allEvents.push({
-      time: t,
+      time: d.getTime(),
       pnlDelta: Number(trade.pnl) || 0,
       capitalDelta: 0,
       isTransfer: false,
@@ -52,41 +71,56 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
     });
   });
 
-  transfers.forEach(tr => {
-    const t = new Date(tr.date + 'T12:00:00').getTime();
+  visibleTransfers.forEach(tr => {
+    // Use noon so it sorts sensibly relative to same-day trades
     const d = new Date(tr.date + 'T12:00:00');
     allEvents.push({
-      time: t,
+      time: d.getTime(),
       pnlDelta: 0,
       capitalDelta: tr.type === 'DEPOSIT' ? tr.amount : -tr.amount,
       isTransfer: true,
       transferType: tr.type,
       transferAmount: tr.amount,
       dateShort: d.toLocaleDateString([], { day: '2-digit', month: '2-digit' }),
-      label: `${tr.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} $${tr.amount}`
+      label: `${tr.type === 'DEPOSIT' ? 'Wpłata' : 'Wypłata'} $${tr.amount}`
     });
   });
 
   allEvents.sort((a, b) => a.time - b.time);
 
+  // Build chart data
+  type Point = {
+    timestamp: number;
+    label: string;
+    dateShort: string;
+    equity: number;
+    isTransfer?: boolean;
+    transferType?: string;
+    transferAmount?: number;
+  };
+
+  const points: Point[] = [];
+
   if (allEvents.length > 0) {
-    const startTime = allEvents[0].time - 3600_000;
+    const startTime = allEvents[0].time - 3_600_000;
     const startDate = new Date(startTime);
     points.push({
       timestamp: startTime,
       label: 'START',
       dateShort: startDate.toLocaleDateString([], { day: '2-digit', month: '2-digit' }),
-      equity: initialBalance
+      equity: Math.max(0, initialBalance) // start at least at 0
     });
 
-    let runningEquity = initialBalance;
+    let runningEquity = Math.max(0, initialBalance);
     allEvents.forEach(ev => {
       runningEquity += ev.pnlDelta + ev.capitalDelta;
+      // Equity = portfolio value: cannot go below 0 (all capital liquidated)
+      const equity = Math.max(0, parseFloat(runningEquity.toFixed(2)));
       points.push({
         timestamp: ev.time,
         label: ev.label,
         dateShort: ev.dateShort,
-        equity: parseFloat(runningEquity.toFixed(2)),
+        equity,
         isTransfer: ev.isTransfer,
         transferType: ev.transferType,
         transferAmount: ev.transferAmount
@@ -94,12 +128,9 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
     });
   }
 
-  // Transfer reference lines — unique dateShort per transfer (avoid visual clutter)
   const transferPoints = points.filter(p => p.isTransfer);
-
-  const minEquity = points.length > 0 ? Math.min(...points.map(d => d.equity)) : 0;
-  const strokeColor = minEquity < 0 ? '#f43f5e' : '#3b82f6';
-  const fillId = minEquity < 0 ? 'colorEquityRed' : 'colorEquity';
+  const strokeColor = '#3b82f6';
+  const fillId = 'colorEquity';
 
   return (
     <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-xl overflow-hidden">
@@ -109,9 +140,13 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
         </h2>
         <div className="flex items-center gap-3">
           {transferPoints.length > 0 && (
-            <div className="flex items-center gap-3 text-[9px] font-black uppercase">
-              <span className="flex items-center gap-1 text-emerald-400"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>Deposit</span>
-              <span className="flex items-center gap-1 text-rose-400"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>Withdrawal</span>
+            <div className="flex items-center gap-3 text-[9px] font-black uppercase tracking-wider">
+              <span className="flex items-center gap-1 text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>Deposit
+              </span>
+              <span className="flex items-center gap-1 text-rose-400">
+                <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>Withdrawal
+              </span>
             </div>
           )}
           <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-900 px-3 py-1 rounded-full border border-slate-700">
@@ -128,10 +163,6 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
                 <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorEquityRed" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.5} />
@@ -150,12 +181,11 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
                 fontSize={10}
                 tickLine={false}
                 axisLine={false}
-                domain={['auto', 'auto']}
+                domain={[0, 'auto']}
                 tickFormatter={(val) => `$${val.toLocaleString()}`}
               />
-              <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 4" />
 
-              {/* Transfer markers – vertical dashed lines with label */}
+              {/* Transfer markers */}
               {transferPoints.map((tp, i) => (
                 <ReferenceLine
                   key={`tr-${i}`}
@@ -163,7 +193,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
                   stroke={tp.transferType === 'DEPOSIT' ? '#10b981' : '#f43f5e'}
                   strokeDasharray="4 3"
                   strokeWidth={1.5}
-                  opacity={0.7}
+                  opacity={0.75}
                   label={<TransferLabel type={tp.transferType} amount={tp.transferAmount ?? 0} />}
                 />
               ))}
@@ -173,11 +203,12 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [] 
                 itemStyle={{ color: strokeColor, fontWeight: '900', fontSize: '14px' }}
                 labelStyle={{ color: '#64748b', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}
                 formatter={(value: number, _: string, props: any) => {
-                  const isTransfer = props?.payload?.isTransfer;
-                  const desc = isTransfer
-                    ? [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${props.payload.label})`, 'Equity after transfer']
-                    : [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Equity'];
-                  return desc;
+                  const p = props?.payload;
+                  if (p?.isTransfer) {
+                    const dir = p.transferType === 'DEPOSIT' ? '↑ Wpłata' : '↓ Wypłata';
+                    return [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${dir} $${p.transferAmount})`, 'Equity'];
+                  }
+                  return [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Equity'];
                 }}
               />
               <Area

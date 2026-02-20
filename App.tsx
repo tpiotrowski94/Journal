@@ -250,7 +250,12 @@ const App: React.FC = () => {
             <TradingMantra activeWallet={activeWallet} onUpdateWallet={(data) => updateWallet(activeWalletId, data)} />
             <Dashboard
               stats={stats}
-              transfers={activeWallet.transfers || []}
+              transfers={(() => {
+                const allTransfers = activeWallet.transfers || [];
+                if (!activeWallet.historyStartDate) return allTransfers;
+                const cutoff = new Date(activeWallet.historyStartDate).getTime();
+                return allTransfers.filter(t => new Date(t.date + 'T00:00:00').getTime() >= cutoff);
+              })()}
               onAdjustBalance={(val) => {
                 const netTransfers = (activeWallet.transfers || []).reduce((sum, t) =>
                   t.type === 'DEPOSIT' ? sum + t.amount : sum - t.amount, 0);
@@ -262,6 +267,7 @@ const App: React.FC = () => {
               onDeleteTransfer={(id) => deleteTransfer(activeWalletId, id)}
               isLive={activeWallet.provider !== SyncProvider.MANUAL}
             />
+
 
             {aiAnalysis && (
               <div className="bg-blue-600/5 border border-blue-500/20 p-6 rounded-3xl relative animate-in fade-in slide-in-from-top-4 duration-500">
@@ -336,7 +342,12 @@ const App: React.FC = () => {
                   onExport={handleExportBackup}
                 />
 
-                <Charts trades={trades} initialBalance={stats.initialBalance + (activeWallet.balanceAdjustment || 0)} transfers={activeWallet.transfers || []} />
+                <Charts
+                  trades={trades}
+                  initialBalance={stats.initialBalance}
+                  transfers={activeWallet.transfers || []}
+                  historyStartDate={activeWallet.historyStartDate}
+                />
 
                 <PnLCalendar trades={trades} portfolioEquity={stats.currentBalance} />
               </div>
