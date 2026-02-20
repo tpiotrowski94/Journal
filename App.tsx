@@ -37,7 +37,8 @@ const App: React.FC = () => {
 
   const {
     wallets, activeWalletId, activeWallet,
-    updateWallet, addWallet, deleteWallet, setActiveWalletId
+    updateWallet, addWallet, deleteWallet, setActiveWalletId,
+    addTransfer, deleteTransfer
   } = useWalletManager();
 
   const {
@@ -124,15 +125,22 @@ const App: React.FC = () => {
 
       // Reconciliation
       const accountValue = syncResult.accountValue;
+
+      // Net transfers: deposits and withdrawals shift the capital base
+      const walletTransfers = activeWallet.transfers || [];
+      const netTransfers = walletTransfers.reduce((sum: number, t: { type: string; amount: number }) =>
+        t.type === 'DEPOSIT' ? sum + t.amount : sum - t.amount, 0
+      );
+
       if (accountValue >= 0) {
         let newInitial = activeWallet.initialBalance;
         let newAdjustment = activeWallet.balanceAdjustment;
 
         if (activeWallet.initialBalance <= 0) {
-          newInitial = accountValue - closedPnl;
+          newInitial = accountValue - closedPnl - netTransfers;
           newAdjustment = 0;
         } else {
-          newAdjustment = accountValue - activeWallet.initialBalance - closedPnl;
+          newAdjustment = accountValue - activeWallet.initialBalance - closedPnl - netTransfers;
         }
 
         if (Math.abs(activeWallet.initialBalance - newInitial) > 0.01 ||
@@ -145,6 +153,7 @@ const App: React.FC = () => {
           });
         }
       }
+
 
     } catch (error) {
       console.error("Sync error:", error);
@@ -231,11 +240,16 @@ const App: React.FC = () => {
             <TradingMantra activeWallet={activeWallet} onUpdateWallet={(data) => updateWallet(activeWalletId, data)} />
             <Dashboard
               stats={stats}
+              transfers={activeWallet.transfers || []}
               onAdjustBalance={(val) => {
-                const needed = val - (activeWallet.initialBalance + stats.totalPnl);
+                const netTransfers = (activeWallet.transfers || []).reduce((sum, t) =>
+                  t.type === 'DEPOSIT' ? sum + t.amount : sum - t.amount, 0);
+                const needed = val - (activeWallet.initialBalance + stats.totalPnl + netTransfers);
                 updateWallet(activeWalletId, { balanceAdjustment: needed });
               }}
               onUpdateInitialBalance={(val) => updateWallet(activeWalletId, { initialBalance: val })}
+              onAddTransfer={(t) => addTransfer(activeWalletId, t)}
+              onDeleteTransfer={(id) => deleteTransfer(activeWalletId, id)}
               isLive={activeWallet.provider !== SyncProvider.MANUAL}
             />
 

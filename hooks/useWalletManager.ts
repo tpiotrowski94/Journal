@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { Wallet, SyncProvider } from '../types';
+import { Wallet, SyncProvider, Transfer } from '../types';
 import { dataService } from '../services/dataService';
 
 export const useWalletManager = () => {
@@ -60,6 +60,28 @@ export const useWalletManager = () => {
         dataService.setActiveWalletId(id);
     }, []);
 
+    const addTransfer = useCallback((walletId: string, transfer: Transfer) => {
+        setWallets(prev => {
+            const updated = prev.map(w => w.id === walletId ? {
+                ...w,
+                transfers: [...(w.transfers || []), transfer]
+            } : w);
+            dataService.saveWallets(updated);
+            return updated;
+        });
+    }, []);
+
+    const deleteTransfer = useCallback((walletId: string, transferId: string) => {
+        setWallets(prev => {
+            const updated = prev.map(w => w.id === walletId ? {
+                ...w,
+                transfers: (w.transfers || []).filter(t => t.id !== transferId)
+            } : w);
+            dataService.saveWallets(updated);
+            return updated;
+        });
+    }, []);
+
     const activeWallet = wallets.find(w => w.id === activeWalletId);
 
     return {
@@ -69,6 +91,8 @@ export const useWalletManager = () => {
         updateWallet,
         addWallet,
         deleteWallet,
-        setActiveWalletId: setActive
+        setActiveWalletId: setActive,
+        addTransfer,
+        deleteTransfer
     };
 };

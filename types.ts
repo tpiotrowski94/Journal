@@ -63,6 +63,14 @@ export interface TradingPillar {
   color: string;
 }
 
+export interface Transfer {
+  id: string;
+  amount: number;
+  date: string;
+  type: 'DEPOSIT' | 'WITHDRAWAL';
+  note?: string;
+}
+
 export interface Wallet {
   id: string;
   name: string;
@@ -70,6 +78,7 @@ export interface Wallet {
   address?: string;
   initialBalance: number;
   balanceAdjustment: number;
+  transfers?: Transfer[];
   mantra?: string;
   pillars?: TradingPillar[];
   showMantra?: boolean;
@@ -94,4 +103,5 @@ export interface TradingStats {
   bestTrade: number;
   worstTrade: number;
   totalFloatingPnl: number;
+  totalTransfers: number;
 }

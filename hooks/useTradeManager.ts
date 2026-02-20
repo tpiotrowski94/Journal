@@ -108,24 +108,34 @@ export const useTradeManager = (activeWalletId: string, wallets: Wallet[]) => {
         const totalFees = trades.reduce((sum, t) => sum + (t.fees || 0), 0);
         const totalFunding = trades.reduce((sum, t) => sum + (t.fundingFees || 0), 0);
 
-        // Floating PnL removed from stats logic mostly, but used for ROI calculation
         const openTrades = trades.filter(t => t.status === TradeStatus.OPEN);
         const floatingPnl = openTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
 
+        // Net transfers: deposits add to capital, withdrawals subtract
+        const transfers = activeWallet?.transfers || [];
+        const netTransfers = transfers.reduce((sum, t) =>
+            t.type === 'DEPOSIT' ? sum + t.amount : sum - t.amount, 0
+        );
+
+        // Capital base = initial deposit + all subsequent net transfers
+        const capitalBase = initial + netTransfers;
+
         return {
             initialBalance: initial,
-            currentBalance: initial + totalPnl + adjustment, // Simplified Ledger Balance
+            currentBalance: capitalBase + totalPnl + adjustment,
             totalTrades: trades.length,
             openTrades: openTrades.length,
             winRate: closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0,
             totalPnl,
-            totalPnlPercentage: initial > 0 ? (totalPnl / initial) * 100 : 0,
+            // ROI is calculated against the full invested capital base (not just initialBalance)
+            totalPnlPercentage: capitalBase > 0 ? (totalPnl / capitalBase) * 100 : 0,
             totalTradeReturn: closedTrades.reduce((sum, t) => sum + (t.pnlPercentage || 0), 0),
             totalTradingFees: totalFees,
             totalFundingFees: totalFunding,
             bestTrade: closedTrades.length > 0 ? Math.max(...closedTrades.map(t => t.pnl)) : 0,
             worstTrade: closedTrades.length > 0 ? Math.min(...closedTrades.map(t => t.pnl)) : 0,
-            totalFloatingPnl: floatingPnl // Still kept in stats for Dashboard to use in Equity Calc if needed, but not displayed as card
+            totalFloatingPnl: floatingPnl,
+            totalTransfers: netTransfers,
         };
     }, [trades, activeWallet]);
 
