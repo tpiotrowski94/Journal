@@ -11,7 +11,7 @@ export const calculatePnl = (trade: Partial<Trade>): { pnl: number, pnlPercentag
     const exitFees = Number(trade.exitFees) || 0;
     const exitFunding = Number(trade.exitFundingFees) || 0;
 
-    if (entry === 0 || amount === 0 || exit === null) return { pnl: 0, pnlPercentage: 0 };
+    if (entry === 0 || amount === 0 || exit === null || exit <= 0) return { pnl: 0, pnlPercentage: 0 };
 
     // Jeśli trade ma już PnL z API (Hyperliquid sync), użyj go jako bazy gross PnL
     // W przeciwnym razie oblicz ze średniej
