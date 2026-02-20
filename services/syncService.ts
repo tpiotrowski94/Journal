@@ -334,7 +334,6 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
       const ledgerEntries: any[] = await ledgerResponse.json();
       if (Array.isArray(ledgerEntries)) {
         ledgerEntries.forEach(entry => {
-          // delta.type can be: 'deposit', 'withdraw', 'internalTransfer', 'spotTransfer', etc.
           const delta = entry.delta;
           if (!delta) return;
 
@@ -342,21 +341,34 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
           const usdc = parseFloat(delta.usdc || delta.amount || '0');
           if (usdc === 0) return;
 
+          let transferType: 'DEPOSIT' | 'WITHDRAWAL' | null = null;
+
           if (deltaType === 'deposit') {
-            detectedTransfers.push({
-              id: `hl-transfer-deposit-${entry.time}-${usdc}`,
-              amount: Math.abs(usdc),
-              date: new Date(entry.time).toISOString().split('T')[0],
-              type: 'DEPOSIT',
-              note: 'HL auto-import'
-            });
+            // On-chain deposit → HL perp account
+            transferType = 'DEPOSIT';
           } else if (deltaType === 'withdraw' || deltaType === 'withdrawal') {
+            // Withdrawal from HL to on-chain wallet
+            transferType = 'WITHDRAWAL';
+          } else if (deltaType === 'internaltransfer') {
+            // Transfer between HL accounts:
+            // - incoming if destination === userAddr
+            // - outgoing if user === userAddr
+            const dest = (delta.destination || '').toLowerCase();
+            const from = (delta.user || '').toLowerCase();
+            if (dest === userAddr) {
+              transferType = 'DEPOSIT';
+            } else if (from === userAddr) {
+              transferType = 'WITHDRAWAL';
+            }
+          }
+
+          if (transferType) {
             detectedTransfers.push({
-              id: `hl-transfer-withdraw-${entry.time}-${usdc}`,
+              id: `hl-transfer-${deltaType}-${entry.time}-${usdc}`,
               amount: Math.abs(usdc),
               date: new Date(entry.time).toISOString().split('T')[0],
-              type: 'WITHDRAWAL',
-              note: 'HL auto-import'
+              type: transferType,
+              note: `HL: ${delta.type}`
             });
           }
         });
@@ -365,6 +377,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   } catch (e) {
     console.warn('Failed to fetch ledger updates', e);
   }
+
 
   return {
     trades: syncedTrades,
