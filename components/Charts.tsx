@@ -94,6 +94,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [],
     label: string;
     dateShort: string;
     equity: number;
+    pnlDelta: number;
     isTransfer?: boolean;
     transferType?: string;
     transferAmount?: number;
@@ -108,7 +109,8 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [],
       timestamp: startTime,
       label: 'START',
       dateShort: startDate.toLocaleDateString([], { day: '2-digit', month: '2-digit' }),
-      equity: Math.max(0, initialBalance) // start at least at 0
+      equity: Math.max(0, initialBalance),
+      pnlDelta: 0
     });
 
     let runningEquity = Math.max(0, initialBalance);
@@ -121,6 +123,7 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [],
         label: ev.label,
         dateShort: ev.dateShort,
         equity,
+        pnlDelta: ev.pnlDelta,
         isTransfer: ev.isTransfer,
         transferType: ev.transferType,
         transferAmount: ev.transferAmount
@@ -204,11 +207,17 @@ const Charts: React.FC<ChartsProps> = ({ trades, initialBalance, transfers = [],
                 labelStyle={{ color: '#64748b', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}
                 formatter={(value: number, _: string, props: any) => {
                   const p = props?.payload;
+                  const equityStr = `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                   if (p?.isTransfer) {
                     const dir = p.transferType === 'DEPOSIT' ? '↑ Wpłata' : '↓ Wypłata';
-                    return [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${dir} $${p.transferAmount})`, 'Equity'];
+                    return [`${equityStr}  (${dir} $${Number(p.transferAmount).toFixed(2)})`, 'Equity'];
                   }
-                  return [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Equity'];
+                  if (p?.pnlDelta !== 0 && p?.pnlDelta != null) {
+                    const sign = p.pnlDelta > 0 ? '+' : '';
+                    const color = p.pnlDelta > 0 ? '#10b981' : '#f43f5e';
+                    return [`${equityStr}  (Trade: ${sign}$${Number(p.pnlDelta).toFixed(2)})`, 'Equity'];
+                  }
+                  return [equityStr, 'Equity'];
                 }}
               />
               <Area

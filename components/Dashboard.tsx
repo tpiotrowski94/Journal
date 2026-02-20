@@ -110,7 +110,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   ];
 
   const recentTransfers = [...(transfers || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 4);
-  const netTransfers = stats.totalTransfers || 0;
+  // Calculate net from the (already date-filtered) transfers prop, not from stats.totalTransfers
+  const netTransfers = (transfers || []).reduce((sum, t) => t.type === 'DEPOSIT' ? sum + t.amount : sum - t.amount, 0);
+
 
   return (
     <div className="space-y-3 mb-8">

@@ -127,8 +127,13 @@ export const useTradeManager = (activeWalletId: string, wallets: Wallet[]) => {
             openTrades: openTrades.length,
             winRate: closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0,
             totalPnl,
-            // ROI is calculated against the full invested capital base (not just initialBalance)
-            totalPnlPercentage: capitalBase > 0 ? (totalPnl / capitalBase) * 100 : 0,
+            // Portfolio Growth (ROI) = trading PnL vs starting capital.
+            // Transfers are capital flows, not trading performance — they must NOT inflate the denominator.
+            // Use initialBalance as the base; if zero, fall back to currentBalance to avoid division by zero.
+            totalPnlPercentage: (initial > 0 ? initial : capitalBase) > 0
+                ? (totalPnl / (initial > 0 ? initial : capitalBase)) * 100
+                : 0,
+
             totalTradeReturn: closedTrades.reduce((sum, t) => sum + (t.pnlPercentage || 0), 0),
             totalTradingFees: totalFees,
             totalFundingFees: totalFunding,

@@ -342,12 +342,38 @@ const App: React.FC = () => {
                   onExport={handleExportBackup}
                 />
 
-                <Charts
-                  trades={trades}
-                  initialBalance={stats.initialBalance}
-                  transfers={activeWallet.transfers || []}
-                  historyStartDate={activeWallet.historyStartDate}
-                />
+                {(() => {
+                  // Compute the equity at historyStartDate by working backward from currentBalance.
+                  // currentBalance = chartStart + filteredPnl + filteredNetTransfers
+                  // => chartStart  = currentBalance - filteredPnl - filteredNetTransfers
+                  // This ensures the chart always ends at the true account value.
+                  const cutoffMs = activeWallet.historyStartDate
+                    ? new Date(activeWallet.historyStartDate).getTime()
+                    : 0;
+                  const filteredTransfers = (activeWallet.transfers || []).filter(t =>
+                    cutoffMs <= 0 || new Date(t.date + 'T00:00:00').getTime() >= cutoffMs
+                  );
+                  const filteredPnl = trades
+                    .filter(t => {
+                      if (t.status !== 'CLOSED') return false;
+                      if (cutoffMs <= 0) return true;
+                      return new Date(t.exitDate || t.date).getTime() >= cutoffMs;
+                    })
+                    .reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+                  const filteredNetTransfers = filteredTransfers.reduce((sum, t) =>
+                    t.type === 'DEPOSIT' ? sum + t.amount : sum - t.amount, 0
+                  );
+                  const chartStartEquity = Math.max(0, stats.currentBalance - filteredPnl - filteredNetTransfers);
+                  return (
+                    <Charts
+                      trades={trades}
+                      initialBalance={chartStartEquity}
+                      transfers={filteredTransfers}
+                      historyStartDate={activeWallet.historyStartDate}
+                    />
+                  );
+                })()}
+
 
                 <PnLCalendar trades={trades} portfolioEquity={stats.currentBalance} />
               </div>
