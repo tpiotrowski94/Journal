@@ -336,7 +336,8 @@ const App: React.FC = () => {
                   onExport={handleExportBackup}
                 />
 
-                <Charts trades={trades} initialBalance={stats.initialBalance + (activeWallet.balanceAdjustment || 0)} />
+                <Charts trades={trades} initialBalance={stats.initialBalance + (activeWallet.balanceAdjustment || 0)} transfers={activeWallet.transfers || []} />
+
                 <PnLCalendar trades={trades} portfolioEquity={stats.currentBalance} />
               </div>
             </div>

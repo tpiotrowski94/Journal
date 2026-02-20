@@ -43,12 +43,11 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
   });
 
   // Fetch transfers (non-funding ledger updates: deposits, withdrawals)
-  // We go back as far as possible – use 0 as startTime
-  const ledgerStartTime = cutoffTimestamp > 0 ? cutoffTimestamp : 0;
+  // Always fetch full history (startTime=0) - transfers are independent of trade history cutoff
   const ledgerPromise = fetch('https://api.hyperliquid.xyz/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: "userNonFundingLedgerUpdates", user: userAddr, startTime: ledgerStartTime })
+    body: JSON.stringify({ type: "userNonFundingLedgerUpdates", user: userAddr, startTime: 0 })
   });
 
   // Oczekujemy na kluczowe dane
