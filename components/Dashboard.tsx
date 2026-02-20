@@ -27,6 +27,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [initialInput, setInitialInput] = useState(stats.initialBalance.toString());
 
   // Transfer form state
+  const [transfersOpen, setTransfersOpen] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [transferType, setTransferType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
   const [transferAmount, setTransferAmount] = useState('');
@@ -61,7 +62,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const totalCosts = (Number(stats.totalTradingFees) || 0) + (Number(stats.totalFundingFees) || 0);
-
   const tradingPerformanceRoi = stats.totalPnlPercentage;
 
   const cards = [
@@ -113,7 +113,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const netTransfers = stats.totalTransfers || 0;
 
   return (
-    <div className="space-y-4 mb-8">
+    <div className="space-y-3 mb-8">
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {cards.map((card, idx) => (
@@ -189,129 +189,136 @@ const Dashboard: React.FC<DashboardProps> = ({
         ))}
       </div>
 
-      {/* Transfers Panel */}
-      <div className="bg-slate-800/60 border border-slate-700/50 rounded-3xl p-5 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <i className="fas fa-arrow-right-arrow-left text-violet-400 text-sm"></i>
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capital Transfers</span>
-            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${netTransfers >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-              Net {netTransfers >= 0 ? '+' : ''}${netTransfers.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <button
-            onClick={() => setShowTransferForm(f => !f)}
-            className="flex items-center gap-1.5 text-[10px] font-black uppercase text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 px-3 py-1.5 rounded-xl transition-all"
-          >
-            <i className={`fas ${showTransferForm ? 'fa-times' : 'fa-plus'} text-[9px]`}></i>
-            {showTransferForm ? 'Cancel' : 'Record Transfer'}
-          </button>
-        </div>
-
-        {/* Inline Transfer Form */}
-        {showTransferForm && (
-          <div className="bg-slate-900/60 border border-slate-700/40 rounded-2xl p-4 mb-4 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
-              {/* Type */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Type</span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setTransferType('DEPOSIT')}
-                    className={`flex-1 text-[9px] font-black uppercase px-2 py-1.5 rounded-lg border transition-all ${transferType === 'DEPOSIT' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}`}
-                  >
-                    <i className="fas fa-arrow-down mr-1"></i>Deposit
-                  </button>
-                  <button
-                    onClick={() => setTransferType('WITHDRAWAL')}
-                    className={`flex-1 text-[9px] font-black uppercase px-2 py-1.5 rounded-lg border transition-all ${transferType === 'WITHDRAWAL' ? 'bg-rose-500/20 border-rose-500/40 text-rose-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}`}
-                  >
-                    <i className="fas fa-arrow-up mr-1"></i>Withdraw
-                  </button>
-                </div>
-              </div>
-              {/* Amount */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Amount (USDC)</span>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  placeholder="0.00"
-                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold text-sm outline-none focus:border-violet-500/50 transition-colors"
-                  value={transferAmount}
-                  onChange={(e) => setTransferAmount(e.target.value)}
-                />
-              </div>
-              {/* Date */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Date</span>
-                <input
-                  type="date"
-                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold text-sm outline-none focus:border-violet-500/50 transition-colors"
-                  value={transferDate}
-                  onChange={(e) => setTransferDate(e.target.value)}
-                />
-              </div>
-              {/* Note + Submit */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Note (optional)</span>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="e.g. top-up"
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-violet-500/50 transition-colors min-w-0"
-                    value={transferNote}
-                    onChange={(e) => setTransferNote(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddTransfer()}
-                  />
-                  <button
-                    onClick={handleAddTransfer}
-                    disabled={!transferAmount || parseFloat(transferAmount) <= 0}
-                    className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-black text-[10px] uppercase rounded-lg transition-all"
-                  >
-                    <i className="fas fa-check"></i>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Transfer History */}
-        {recentTransfers.length > 0 ? (
-          <div className="space-y-1.5">
-            {recentTransfers.map(t => (
-              <div key={t.id} className="flex items-center justify-between bg-slate-900/40 rounded-xl px-4 py-2 group">
-                <div className="flex items-center gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${t.type === 'DEPOSIT' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-                    <i className={`fas ${t.type === 'DEPOSIT' ? 'fa-arrow-down' : 'fa-arrow-up'}`}></i>
-                  </div>
-                  <div>
-                    <span className={`text-xs font-black ${t.type === 'DEPOSIT' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {t.type === 'DEPOSIT' ? '+' : '-'}${t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                    {t.note && <span className="text-[10px] text-slate-500 ml-2">— {t.note}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] text-slate-600">{new Date(t.date).toLocaleDateString()}</span>
-                  <button
-                    onClick={() => onDeleteTransfer(t.id)}
-                    className="text-slate-700 hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100 text-[10px]"
-                    title="Delete transfer"
-                  >
-                    <i className="fas fa-times"></i>
-                  </button>
-                </div>
-              </div>
-            ))}
-            {(transfers || []).length > 4 && (
-              <p className="text-[10px] text-slate-600 text-center pt-1">+{(transfers || []).length - 4} more transfers</p>
+      {/* Transfers – collapsible, dyskretny footer */}
+      <div className="border border-slate-700/30 rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setTransfersOpen(o => !o)}
+          className="w-full flex items-center justify-between px-5 py-3 text-slate-600 hover:text-slate-400 hover:bg-slate-800/40 transition-all"
+        >
+          <div className="flex items-center gap-2">
+            <i className="fas fa-arrow-right-arrow-left text-[10px]"></i>
+            <span className="text-[9px] font-black uppercase tracking-widest">Capital Transfers</span>
+            {transfers.length > 0 && (
+              <span className={`text-[9px] font-black ${netTransfers >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>
+                net {netTransfers >= 0 ? '+' : ''}${netTransfers.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             )}
           </div>
-        ) : (
-          <p className="text-[10px] text-slate-600 italic text-center py-2">No capital transfers recorded yet</p>
+          <i className={`fas fa-chevron-${transfersOpen ? 'up' : 'down'} text-[9px]`}></i>
+        </button>
+
+        {transfersOpen && (
+          <div className="px-5 pb-4 pt-1 bg-slate-900/30">
+            {/* Add Transfer Button */}
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={() => setShowTransferForm(f => !f)}
+                className="flex items-center gap-1.5 text-[9px] font-black uppercase text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 px-3 py-1.5 rounded-xl transition-all"
+              >
+                <i className={`fas ${showTransferForm ? 'fa-times' : 'fa-plus'} text-[8px]`}></i>
+                {showTransferForm ? 'Cancel' : 'Record Transfer'}
+              </button>
+            </div>
+
+            {/* Inline Transfer Form */}
+            {showTransferForm && (
+              <div className="bg-slate-900/60 border border-slate-700/40 rounded-2xl p-4 mb-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Type</span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setTransferType('DEPOSIT')}
+                        className={`flex-1 text-[9px] font-black uppercase px-2 py-1.5 rounded-lg border transition-all ${transferType === 'DEPOSIT' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <i className="fas fa-arrow-down mr-1"></i>Deposit
+                      </button>
+                      <button
+                        onClick={() => setTransferType('WITHDRAWAL')}
+                        className={`flex-1 text-[9px] font-black uppercase px-2 py-1.5 rounded-lg border transition-all ${transferType === 'WITHDRAWAL' ? 'bg-rose-500/20 border-rose-500/40 text-rose-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <i className="fas fa-arrow-up mr-1"></i>Withdraw
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Amount (USDC)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0.00"
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold text-sm outline-none focus:border-violet-500/50 transition-colors"
+                      value={transferAmount}
+                      onChange={(e) => setTransferAmount(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Date</span>
+                    <input
+                      type="date"
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold text-sm outline-none focus:border-violet-500/50 transition-colors"
+                      value={transferDate}
+                      onChange={(e) => setTransferDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Note (optional)</span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. top-up"
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-violet-500/50 transition-colors min-w-0"
+                        value={transferNote}
+                        onChange={(e) => setTransferNote(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddTransfer()}
+                      />
+                      <button
+                        onClick={handleAddTransfer}
+                        disabled={!transferAmount || parseFloat(transferAmount) <= 0}
+                        className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-black text-[10px] uppercase rounded-lg transition-all"
+                      >
+                        <i className="fas fa-check"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Transfer History */}
+            {recentTransfers.length > 0 ? (
+              <div className="space-y-1">
+                {recentTransfers.map(t => (
+                  <div key={t.id} className="flex items-center justify-between rounded-xl px-3 py-1.5 group hover:bg-slate-800/30 transition-colors">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] ${t.type === 'DEPOSIT' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500'}`}>
+                        <i className={`fas ${t.type === 'DEPOSIT' ? 'fa-arrow-down' : 'fa-arrow-up'}`}></i>
+                      </div>
+                      <span className={`text-xs font-black ${t.type === 'DEPOSIT' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {t.type === 'DEPOSIT' ? '+' : '-'}${t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      {t.note && <span className="text-[10px] text-slate-600">— {t.note}</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-700">{new Date(t.date).toLocaleDateString()}</span>
+                      <button
+                        onClick={() => onDeleteTransfer(t.id)}
+                        className="text-slate-700 hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100 text-[9px] ml-1"
+                      >
+                        <i className="fas fa-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {(transfers || []).length > 4 && (
+                  <p className="text-[9px] text-slate-700 text-center pt-1">+{(transfers || []).length - 4} more</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[9px] text-slate-700 italic text-center py-1">No transfers recorded</p>
+            )}
+          </div>
         )}
       </div>
     </div>

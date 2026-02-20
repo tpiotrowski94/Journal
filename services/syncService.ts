@@ -1,9 +1,10 @@
 
-import { Trade, TradeType, TradeStatus, MarginMode } from "../types";
+import { Trade, TradeType, TradeStatus, MarginMode, Transfer } from "../types";
 
 export interface SyncResult {
   trades: Partial<Trade>[];
   accountValue: number;
+  detectedTransfers: Transfer[];
 }
 
 export const syncHyperliquidData = async (address: string, historyCutoff?: string): Promise<SyncResult> => {
@@ -39,6 +40,15 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: "userFills", user: userAddr })
+  });
+
+  // Fetch transfers (non-funding ledger updates: deposits, withdrawals)
+  // We go back as far as possible – use 0 as startTime
+  const ledgerStartTime = cutoffTimestamp > 0 ? cutoffTimestamp : 0;
+  const ledgerPromise = fetch('https://api.hyperliquid.xyz/info', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: "userNonFundingLedgerUpdates", user: userAddr, startTime: ledgerStartTime })
   });
 
   // Oczekujemy na kluczowe dane
@@ -83,7 +93,7 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
 
   // 2. PRZETWARZANIE HISTORII TRANSAKCJI
   if (!fillsResponse.ok) {
-    return { trades: [], accountValue: totalAccountValue };
+    return { trades: [], accountValue: totalAccountValue, detectedTransfers: [] };
   }
 
   const fills = await fillsResponse.json();
@@ -316,8 +326,49 @@ export const syncHyperliquidData = async (address: string, historyCutoff?: strin
     });
   }
 
+  // 3. LEDGER UPDATES – deposity i wypłaty USDC
+  const detectedTransfers: Transfer[] = [];
+  try {
+    const ledgerResponse = await ledgerPromise;
+    if (ledgerResponse.ok) {
+      const ledgerEntries: any[] = await ledgerResponse.json();
+      if (Array.isArray(ledgerEntries)) {
+        ledgerEntries.forEach(entry => {
+          // delta.type can be: 'deposit', 'withdraw', 'internalTransfer', 'spotTransfer', etc.
+          const delta = entry.delta;
+          if (!delta) return;
+
+          const deltaType: string = (delta.type || '').toLowerCase();
+          const usdc = parseFloat(delta.usdc || delta.amount || '0');
+          if (usdc === 0) return;
+
+          if (deltaType === 'deposit') {
+            detectedTransfers.push({
+              id: `hl-transfer-deposit-${entry.time}-${usdc}`,
+              amount: Math.abs(usdc),
+              date: new Date(entry.time).toISOString().split('T')[0],
+              type: 'DEPOSIT',
+              note: 'HL auto-import'
+            });
+          } else if (deltaType === 'withdraw' || deltaType === 'withdrawal') {
+            detectedTransfers.push({
+              id: `hl-transfer-withdraw-${entry.time}-${usdc}`,
+              amount: Math.abs(usdc),
+              date: new Date(entry.time).toISOString().split('T')[0],
+              type: 'WITHDRAWAL',
+              note: 'HL auto-import'
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to fetch ledger updates', e);
+  }
+
   return {
     trades: syncedTrades,
-    accountValue: totalAccountValue
+    accountValue: totalAccountValue,
+    detectedTransfers
   };
 };

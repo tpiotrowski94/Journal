@@ -154,6 +154,16 @@ const App: React.FC = () => {
         }
       }
 
+      // Merge HL-detected transfers (deposits/withdrawals) into wallet
+      // Deduplication: skip any that already exist by id
+      if (syncResult.detectedTransfers && syncResult.detectedTransfers.length > 0) {
+        const existingIds = new Set((activeWallet.transfers || []).map(t => t.id));
+        const newTransfers = syncResult.detectedTransfers.filter(t => !existingIds.has(t.id));
+        if (newTransfers.length > 0) {
+          newTransfers.forEach(t => addTransfer(activeWalletId, t));
+          console.log(`[HL Sync] Auto-imported ${newTransfers.length} transfer(s)`);
+        }
+      }
 
     } catch (error) {
       console.error("Sync error:", error);
