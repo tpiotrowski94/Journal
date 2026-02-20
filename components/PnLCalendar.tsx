@@ -109,23 +109,31 @@ const PnLCalendar: React.FC<PnLCalendarProps> = ({ trades, portfolioEquity }) =>
           </div>
 
           {/* Middle: ROI %, PnL $, Portfolio Eq % */}
-          <div className="flex-1 flex flex-col items-center justify-center py-0.5 gap-0.5">
+          <div className="flex-1 flex flex-col items-center justify-center py-0.5 gap-1">
             {stats ? (
               <>
-                {/* 1. Sum of Trade ROIs (Accumulated %) */}
-                <span className={`text-lg font-black tracking-tight leading-none ${stats.roiSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {stats.roiSum >= 0 ? '+' : ''}{stats.roiSum.toFixed(2)}%
-                </span>
+                {/* 1. Portfolio Impact (Equity %) */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-black uppercase text-slate-500">Eq:</span>
+                  <span className={`text-xs font-black tracking-tight ${portRoi >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
+                  </span>
+                </div>
 
-                {/* 2. PnL Dollars */}
-                <span className={`text-xs font-bold ${stats.pnl >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
-                  {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
-                </span>
+                {/* 2. Sum of Trade ROIs (Accumulated %) */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-black uppercase text-slate-500">Roi:</span>
+                  <span className={`text-xs font-black tracking-tight ${stats.roiSum >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {stats.roiSum >= 0 ? '+' : ''}{stats.roiSum.toFixed(2)}%
+                  </span>
+                </div>
 
-                {/* 3. Portfolio Impact */}
-                <span className={`text-[8px] font-black uppercase mt-0.5 opacity-60 ${portRoi >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  Eq: {portRoi >= 0 ? '+' : ''}{portRoi.toFixed(roiPrecision)}%
-                </span>
+                {/* 3. PnL Dollars */}
+                <div className="flex items-center gap-1">
+                  <span className={`text-xs font-black tracking-tight ${stats.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {stats.pnl >= 0 ? '+' : ''}{Math.round(stats.pnl)}$
+                  </span>
+                </div>
               </>
             ) : (
               <span className="text-slate-700 text-xl font-black opacity-20">-</span>

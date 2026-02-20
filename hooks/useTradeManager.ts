@@ -34,7 +34,18 @@ export const useTradeManager = (activeWalletId: string, wallets: Wallet[]) => {
 
         // Simple dedup before setting state
         const unique = Array.from(new Map(filtered.map(t => [t.id, t])).values());
-        setTrades(unique);
+
+        // FIX: Recalculate PnL for all closed trades to ensure consistency and fix any past data corruption
+        // (e.g. double fee subtraction). We verify entry/exit/amount exist before overwriting.
+        const validated = unique.map(t => {
+            if (t.status === TradeStatus.CLOSED && t.entryPrice && t.amount && t.exitPrice !== null) {
+                const { pnl, pnlPercentage } = calculatePnl(t);
+                return { ...t, pnl, pnlPercentage };
+            }
+            return t;
+        });
+
+        setTrades(validated);
 
     }, [activeWalletId, activeWallet?.historyStartDate]);
 
