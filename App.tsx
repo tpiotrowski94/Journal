@@ -16,6 +16,7 @@ import { calculatePnl } from './utils/tradeCalculations';
 import { mergeTrades } from './utils/tradeMerge';
 import { useWalletManager } from './hooks/useWalletManager';
 import { useTradeManager } from './hooks/useTradeManager';
+import { dataService } from './services/dataService';
 
 declare global {
   interface AIStudio {
@@ -195,10 +196,7 @@ const App: React.FC = () => {
   }, [autoSyncEnabled, activeWalletId]);
 
   const handleExportBackup = () => {
-    // Re-use logic or move to utils
-    // Using simple inline for now as it relies on simple JSON stringify
-    const data = { wallets, trades }; // Simple dump
-    // Or call dataService if exposed
+    const data = dataService.exportFullBackup();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -208,6 +206,41 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+        
+        if (data.wallets && Array.isArray(data.wallets)) {
+            if (data.trades && !Array.isArray(data.trades)) {
+               dataService.importFullBackup(data);
+            } else {
+               dataService.saveWallets(data.wallets);
+               if (activeWalletId && Array.isArray(data.trades)) {
+                   dataService.saveTrades(activeWalletId, data.trades);
+               }
+            }
+            window.location.reload();
+        } else {
+            alert('Invalid backup file format');
+        }
+      } catch (error) {
+        console.error('Import error:', error);
+        alert('Failed to parse backup file');
+      }
+    };
+    reader.readAsText(file);
+    
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -226,6 +259,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportBackup} className="hidden" />
               <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-700 hover:text-white"><i className="fas fa-file-import"></i> Import</button>
               <button onClick={handleExportBackup} className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-700 hover:text-white"><i className="fas fa-file-export"></i> Backup</button>
               <div className="h-6 w-px bg-slate-800 mx-1 hidden md:block"></div>
